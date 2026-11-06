@@ -2,15 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PlayPulse Wristbands</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b0f" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+  <title>PlayPulse</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="banners">
     <div id="lost-banner" class="banner banner-lost" role="alert" hidden>
-      <strong>Connection to the dashboard lost.</strong>
-      Times on this page are out of date until it reconnects.
+      <strong>Connection lost.</strong> Times are out of date until it reconnects.
     </div>
     <div id="feed-banner" class="banner banner-sim" hidden>
       <strong id="feed-title">Simulated data</strong>
@@ -19,109 +22,168 @@
   </div>
 
   <header class="top">
-    <h1>PlayPulse <span>Wristbands</span></h1>
-    <dl class="counts" aria-label="Summary">
-      <div><dt>Active</dt><dd id="count-green">0</dd></div>
-      <div><dt>Ending soon</dt><dd id="count-yellow">0</dd></div>
-      <div><dt>Expired</dt><dd id="count-red">0</dd></div>
-      <div><dt>Offline</dt><dd id="count-offline">0</dd></div>
-      <div id="mismatch-count" hidden><dt>Mismatch</dt><dd id="count-mismatch">0</dd></div>
-    </dl>
-    <button class="btn btn-primary" data-action="register">Register wristband</button>
+    <div class="brand">
+      <img src="icon.svg" alt="" width="36" height="36">
+      <h1>PlayPulse</h1>
+    </div>
+    <button id="top-add" class="btn btn-primary top-add" data-action="add">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span id="top-add-text">Add wristband</span>
+    </button>
+    <button id="sign-out" class="icon-btn" data-action="sign-out" aria-label="Sign out" title="Sign out" hidden>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16l4-4-4-4M14 12H4"/></svg>
+    </button>
   </header>
 
+  <nav class="tabs" aria-label="Sections">
+    <button class="tab" data-view="bands" aria-current="page">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/><path d="M9 6l1-3h4l1 3M9 18l1 3h4l1-3"/></svg>
+      Wristbands
+    </button>
+    <button class="tab" data-view="children">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M5 21c0-4 3-6 7-6s7 2 7 6"/></svg>
+      Children
+    </button>
+    <button class="tab" data-view="parents">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.5-5.5 6-5.5s6 2 6 5.5M16 4.8a3.5 3.5 0 0 1 0 6.4M18 15c2 .7 3 2.500 3 5"/></svg>
+      Parents
+    </button>
+  </nav>
+
   <main id="main">
-    <section aria-labelledby="attention-heading">
-      <h2 id="attention-heading">Needs attention</h2>
-      <p id="attention-empty" class="quiet">No wristbands are expired or ending soon.</p>
-      <div id="attention" class="attention"></div>
+    <div id="view-bands" class="view">
+    <div class="tiles" role="group" aria-label="Show wristbands by status">
+      <button class="tile" data-filter="green" aria-pressed="false">
+        <span class="tile-count" id="count-green">0</span><span class="tile-name">Active</span>
+      </button>
+      <button class="tile" data-filter="yellow" aria-pressed="false">
+        <span class="tile-count" id="count-yellow">0</span><span class="tile-name">Ending soon</span>
+      </button>
+      <button class="tile" data-filter="red" aria-pressed="false">
+        <span class="tile-count" id="count-red">0</span><span class="tile-name">Time up</span>
+      </button>
+      <button class="tile" data-filter="offline" aria-pressed="false">
+        <span class="tile-count" id="count-offline">0</span><span class="tile-name">Offline</span>
+      </button>
+      <button class="tile" id="mismatch-tile" data-filter="mismatch" aria-pressed="false" hidden>
+        <span class="tile-count" id="count-mismatch">0</span><span class="tile-name">Mismatch</span>
+      </button>
+    </div>
+
+    <section id="nearby-section" class="nearby-section" aria-labelledby="nearby-heading" hidden>
+      <h2 id="nearby-heading">New wristbands nearby</h2>
+      <ul id="nearby" class="nearby"></ul>
     </section>
 
     <section aria-labelledby="all-heading">
-      <h2 id="all-heading">All wristbands</h2>
-      <p id="devices-empty" class="quiet" hidden>No wristbands are registered yet.</p>
-      <table id="devices-table">
-        <thead>
-          <tr>
-            <th scope="col">Wristband</th>
-            <th scope="col">State</th>
-            <th scope="col">Time remaining</th>
-            <th scope="col">Last seen</th>
-            <th scope="col">Status</th>
-            <th scope="col"><span class="sr-only">Actions</span></th>
-          </tr>
-        </thead>
-        <tbody id="devices"></tbody>
-      </table>
+      <div class="section-head">
+        <h2 id="all-heading">Wristbands</h2>
+        <button id="clear-filter" class="link-btn" data-action="clear-filter" hidden>Show all</button>
+      </div>
+      <div id="devices" class="bands"></div>
+      <div id="devices-empty" class="empty" hidden>
+        <p class="empty-title">No wristbands yet</p>
+        <p>Turn a wristband on and it will appear here, or add one by its ID.</p>
+      </div>
+      <p id="filter-empty" class="empty" hidden>Nothing matches this filter.</p>
     </section>
+    </div>
 
-    <section id="nearby-section" aria-labelledby="nearby-heading" hidden>
-      <h2 id="nearby-heading">Detected, not registered</h2>
-      <ul id="nearby" class="nearby"></ul>
-    </section>
+    <div id="view-children" class="view" hidden>
+      <input id="child-search" class="search" type="search" placeholder="Search children" aria-label="Search children" autocomplete="off">
+      <div id="children" class="people"></div>
+      <div id="children-empty" class="empty" hidden>
+        <p class="empty-title">No children yet</p>
+        <p>Add a child to track their time, whichever wristband they wear.</p>
+      </div>
+    </div>
+
+    <div id="view-parents" class="view" hidden>
+      <input id="parent-search" class="search" type="search" placeholder="Search parents" aria-label="Search parents" autocomplete="off">
+      <div id="parents" class="people"></div>
+      <div id="parents-empty" class="empty" hidden>
+        <p class="empty-title">No parents yet</p>
+        <p>Add a parent here, or while adding their child.</p>
+      </div>
+    </div>
   </main>
+
+  <button id="fab" class="fab" data-action="add" aria-label="Add wristband">
+    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-  <template id="device-row">
-    <tr>
-      <td data-label="Wristband">
-        <span class="name" data-f="label"></span>
-        <span class="id" data-f="id"></span>
-      </td>
-      <td data-label="State">
-        <span class="pill" data-f="state"></span>
-        <span class="note" data-f="restart" hidden></span>
-      </td>
-      <td data-label="Time remaining" class="time" data-f="time"></td>
-      <td data-label="Last seen" data-f="seen"></td>
-      <td data-label="Status">
-        <span class="link" data-f="link"></span>
-        <span class="note" data-f="watch" hidden></span>
-      </td>
-      <td class="actions">
-        <button class="btn btn-small btn-primary" data-action="start">Start</button>
-        <button class="btn btn-small" data-action="extend">Extend</button>
-        <button class="btn btn-small" data-action="end">End</button>
-        <button class="btn btn-small btn-quiet" data-action="rename">Rename</button>
-        <button class="btn btn-small btn-quiet" data-action="remove">Remove</button>
-      </td>
-    </tr>
-  </template>
-
-  <template id="attention-card">
-    <article class="card">
-      <div class="card-head">
-        <span class="card-state" data-f="state"></span>
-        <span class="card-offline" data-f="offline" hidden>Offline</span>
+  <template id="band-card">
+    <article class="band">
+      <div class="dial">
+        <svg viewBox="0 0 88 88" aria-hidden="true">
+          <circle class="dial-track" cx="44" cy="44" r="38"/>
+          <circle class="dial-fill" data-f="dial" cx="44" cy="44" r="38" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 44 44)"/>
+        </svg>
+        <span class="dial-time" data-f="time"></span>
       </div>
-      <p class="card-name" data-f="label"></p>
-      <p class="id" data-f="id"></p>
-      <p class="card-time" data-f="time"></p>
-      <p class="card-note" data-f="watch" hidden></p>
-      <p class="card-note" data-f="restart" hidden></p>
-      <div class="card-actions">
+      <div class="band-info">
+        <h3 class="band-name" data-f="label"></h3>
+        <p class="band-id" data-f="id"></p>
+        <p class="band-meta"><span class="state" data-f="state"></span></p>
+        <p class="band-meta"><span class="link" data-f="link"></span></p>
+      </div>
+      <button class="icon-btn band-more" data-action="more" aria-label="More options">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
+      </button>
+      <p class="band-note" data-f="watch" hidden></p>
+      <p class="band-note" data-f="restart" hidden></p>
+      <div class="band-actions">
+        <button class="btn btn-primary" data-action="start">Start session</button>
         <button class="btn" data-action="extend">Extend</button>
-        <button class="btn" data-action="end">End session</button>
+        <button class="btn" data-action="end">End</button>
       </div>
     </article>
   </template>
 
+  <template id="person-card">
+    <button class="person" type="button">
+      <span class="avatar" data-f="initials" aria-hidden="true"></span>
+      <span class="person-text">
+        <span class="person-name" data-f="name"></span>
+        <span class="person-line" data-f="line"></span>
+        <span class="person-line" data-f="detail"></span>
+      </span>
+      <span class="person-live" data-f="live" hidden></span>
+    </button>
+  </template>
+
+  <template id="usage-row">
+    <li>
+      <span class="usage-main">
+        <span data-f="date"></span>
+        <span class="muted" data-f="tag"></span>
+      </span>
+      <span class="usage-time">
+        <span data-f="used"></span>
+        <span class="muted" data-f="allocated"></span>
+      </span>
+    </li>
+  </template>
+
   <template id="nearby-item">
     <li>
-      <span class="id" data-f="id"></span>
-      <span class="quiet" data-f="seen"></span>
-      <button class="btn btn-small" data-action="register-nearby">Register</button>
+      <span class="nearby-text">
+        <span class="band-id" data-f="id"></span>
+        <span class="muted" data-f="seen"></span>
+      </span>
+      <button class="btn" data-action="register-nearby">Add</button>
     </li>
   </template>
 
   <dialog id="device-dialog">
     <form method="dialog">
       <h2 data-f="title"></h2>
-      <label>Wristband ID
-        <input name="id" required maxlength="32" pattern="[A-Za-z0-9_\-]+" placeholder="PlayPark_Tag_09" autocomplete="off">
+      <label class="field">Wristband ID
+        <input name="id" required maxlength="32" pattern="[A-Za-z0-9_\-]+" placeholder="PlayPark_Tag_09" autocomplete="off" autocapitalize="off" spellcheck="false">
       </label>
-      <label>Visitor or child label
+      <label class="field">Visitor or child label
         <input name="label" maxlength="40" placeholder="Optional" autocomplete="off">
       </label>
       <p class="form-error" role="alert" hidden></p>
@@ -135,14 +197,17 @@
   <dialog id="session-dialog">
     <form method="dialog">
       <h2 data-f="title"></h2>
-      <p class="id" data-f="device"></p>
-      <label data-f="label-field">Visitor or child label
+      <p class="muted" data-f="device"></p>
+      <label class="field" data-f="child-field">Child
+        <select name="childId"></select>
+      </label>
+      <label class="field" data-f="label-field">Walk-in label
         <input name="label" maxlength="40" placeholder="Optional" autocomplete="off">
       </label>
       <fieldset>
         <legend>Duration</legend>
         <div class="presets" data-f="presets"></div>
-        <label class="custom">Custom minutes
+        <label class="field custom">Custom minutes
           <input name="minutes" type="number" min="0.5" max="720" step="0.5" inputmode="decimal">
         </label>
       </fieldset>
@@ -163,6 +228,116 @@
         <button type="button" class="btn" data-close>Cancel</button>
         <button type="submit" class="btn btn-danger" data-f="submit"></button>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="more-dialog">
+    <form method="dialog">
+      <h2 data-f="title"></h2>
+      <p class="muted" data-f="device"></p>
+      <div class="more-list">
+        <button type="button" class="btn btn-block" data-more="assign">Assign child</button>
+        <button type="button" class="btn btn-block" data-more="profile">View child</button>
+        <button type="button" class="btn btn-block" data-more="rename">Rename</button>
+        <button type="button" class="btn btn-block btn-danger-quiet" data-more="remove">Remove wristband</button>
+        <button type="button" class="btn btn-block" data-close>Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="assign-dialog">
+    <form method="dialog">
+      <h2>Assign child</h2>
+      <p class="muted" data-f="device"></p>
+      <label class="field">Child
+        <select name="childId"></select>
+      </label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="child-dialog">
+    <form method="dialog">
+      <h2 data-f="title"></h2>
+      <label class="field">Child's name
+        <input name="name" required maxlength="60" autocomplete="off">
+      </label>
+      <fieldset data-f="parents-field">
+        <legend>Parents</legend>
+        <div class="checks" data-f="parents"></div>
+      </fieldset>
+      <fieldset>
+        <legend>Add a new parent (optional)</legend>
+        <div class="stack">
+          <label class="field">Name
+            <input name="parentName" maxlength="60" autocomplete="off">
+          </label>
+          <label class="field">Phone
+            <input name="parentPhone" type="tel" maxlength="24" autocomplete="off">
+          </label>
+        </div>
+      </fieldset>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary" data-f="submit"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="parent-dialog">
+    <form method="dialog">
+      <h2 data-f="title"></h2>
+      <label class="field">Name
+        <input name="name" required maxlength="60" autocomplete="off">
+      </label>
+      <label class="field">Phone
+        <input name="phone" type="tel" maxlength="24" autocomplete="off">
+      </label>
+      <label class="field">Email
+        <input name="email" type="email" maxlength="120" autocomplete="off">
+      </label>
+      <p class="muted" data-f="children"></p>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary" data-f="submit"></button>
+      </div>
+      <button type="button" class="btn btn-block btn-danger-quiet" data-f="remove">Remove parent</button>
+    </form>
+  </dialog>
+
+  <dialog id="profile-dialog">
+    <form method="dialog">
+      <div class="profile-head">
+        <span class="avatar avatar-large" data-f="initials" aria-hidden="true"></span>
+        <div>
+          <h2 data-f="name"></h2>
+          <p class="muted" data-f="live"></p>
+        </div>
+      </div>
+      <div class="profile-stats">
+        <div><span class="stat" data-f="total"></span><span class="muted">Total time</span></div>
+        <div><span class="stat" data-f="visits"></span><span class="muted">Sessions</span></div>
+      </div>
+      <div>
+        <h3 class="sub-head">Parents</h3>
+        <ul class="contact-list" data-f="parents"></ul>
+      </div>
+      <div>
+        <h3 class="sub-head">Usage</h3>
+        <ul class="usage-list" data-f="usage"></ul>
+        <p class="muted" data-f="usage-empty" hidden>No finished sessions yet.</p>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Close</button>
+        <button type="button" class="btn btn-primary" data-f="edit">Edit</button>
+      </div>
+      <button type="button" class="btn btn-block btn-danger-quiet" data-f="remove">Delete child and history</button>
     </form>
   </dialog>
 

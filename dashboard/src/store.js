@@ -1,4 +1,5 @@
-// Owns wristbands and their sessions, and persists them to a JSON file.
+// Owns wristbands, sessions, children, parents and usage history, and persists them
+// to a JSON file. Names and contact details stay here: they are never sent to watches.
 //
 // The server is the authority on session time: a session is stored as absolute
 // wall-clock timestamps and its state is derived on read. Nothing here assumes
@@ -8,13 +9,19 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-const FILE_VERSION = 1;
+const FILE_VERSION = 2;
+const READABLE_VERSIONS = [1, 2];
 const LAST_SEEN_FLUSH_MS = 5000;
 const NEARBY_TTL_MS = 60_000;
 const NEARBY_MAX = 200;
 const MAX_WARNING_MS = 5 * 60_000;
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
 const LABEL_MAX = 40;
+const NAME_MAX = 60;
+const EMAIL_MAX = 120;
+const PHONE_PATTERN = /^\+?[0-9 ()-]{5,24}$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USAGE_SHOWN = 200;
 // A report received this soon after a session change may predate the change.
 const REPORT_SETTLE_MS = 2000;
 // How far a watch's countdown may differ from the server's before it is flagged.
@@ -73,6 +80,30 @@ function cleanLabel(value) {
   return label;
 }
 
+function cleanName(value) {
+  const name = typeof value === 'string' ? value.trim() : '';
+  if (!name || name.length > NAME_MAX) {
+    throw new StoreError(400, 'invalid_name', `Enter a name of up to ${NAME_MAX} characters.`);
+  }
+  return name;
+}
+
+function cleanPhone(value) {
+  const phone = typeof value === 'string' ? value.trim() : '';
+  if (phone && !PHONE_PATTERN.test(phone)) {
+    throw new StoreError(400, 'invalid_phone', 'Enter a phone number using digits only.');
+  }
+  return phone;
+}
+
+function cleanEmail(value) {
+  const email = typeof value === 'string' ? value.trim() : '';
+  if (email && (email.length > EMAIL_MAX || !EMAIL_PATTERN.test(email))) {
+    throw new StoreError(400, 'invalid_email', 'Enter a valid email address.');
+  }
+  return email;
+}
+
 function durationMs(seconds) {
   if (!Number.isInteger(seconds) || seconds < MIN_DURATION_S || seconds > MAX_DURATION_S) {
     throw new StoreError(
@@ -88,6 +119,10 @@ export class Store extends EventEmitter {
   #devices = new Map();
   #nearby = new Map();
   #presence = new Map(); // status heard from wristbands not registered yet
+  #children = new Map();
+  #parents = new Map();
+  #usage = [];
+  #revision = 0; // Moves on each saved change, so the page knows to reload people.
   #dirty = false;
   #flushTimer = null;
 
@@ -108,15 +143,19 @@ export class Store extends EventEmitter {
     } catch (err) {
       throw new Error(`Cannot read ${this.file}: ${err.message}. Fix or move the file, then restart.`);
     }
-    if (data.version !== FILE_VERSION || !Array.isArray(data.devices)) {
-      throw new Error(`${this.file} is not a version ${FILE_VERSION} PlayPulse data file.`);
+    if (!READABLE_VERSIONS.includes(data.version) || !Array.isArray(data.devices)) {
+      throw new Error(`${this.file} is not a PlayPulse data file this version can read.`);
     }
+    for (const child of data.children ?? []) this.#children.set(child.id, child);
+    for (const parent of data.parents ?? []) this.#parents.set(parent.id, parent);
+    this.#usage = data.usage ?? [];
     for (const device of data.devices) {
       // Files saved before sessions had IDs.
       if (device.session) {
         device.session.id ??= newSessionId();
         device.session.originalDurationMs ??= device.session.durationMs;
         device.session.restarts ??= 0;
+        device.session.childId ??= null;
       }
       device.sessionChangedAt ??= 0;
       device.report ??= null;
@@ -148,7 +187,13 @@ export class Store extends EventEmitter {
 
   #save() {
     mkdirSync(dirname(this.file), { recursive: true });
-    const body = JSON.stringify({ version: FILE_VERSION, devices: [...this.#devices.values()] }, null, 2);
+    const body = JSON.stringify({
+      version: FILE_VERSION,
+      devices: [...this.#devices.values()],
+      children: [...this.#children.values()],
+      parents: [...this.#parents.values()],
+      usage: this.#usage,
+    }, null, 2);
     const temp = `${this.file}.tmp`;
     writeFileSync(temp, body);
     renameSync(temp, this.file);
@@ -156,6 +201,7 @@ export class Store extends EventEmitter {
   }
 
   #commit() {
+    this.#revision += 1;
     this.#dirty = true;
     this.#save();
     this.emit('change');
@@ -177,6 +223,44 @@ export class Store extends EventEmitter {
     const device = this.#devices.get(id);
     if (!device) throw new StoreError(404, 'unknown_device', `No wristband ${id} is registered.`);
     return device;
+  }
+
+  #child(id) {
+    const child = this.#children.get(id);
+    if (!child) throw new StoreError(404, 'unknown_child', 'That child is not on the system.');
+    return child;
+  }
+
+  #parent(id) {
+    const parent = this.#parents.get(id);
+    if (!parent) throw new StoreError(404, 'unknown_parent', 'That parent is not on the system.');
+    return parent;
+  }
+
+  #deviceWithChild(childId) {
+    return [...this.#devices.values()].find((device) => device.session?.childId === childId);
+  }
+
+  // A child wears one tag at a time, so a second tag points to a mistake.
+  #requireFree(childId, exceptDeviceId) {
+    const device = this.#deviceWithChild(childId);
+    if (device && device.id !== exceptDeviceId) {
+      throw new StoreError(409, 'child_busy', `${this.#child(childId).name} is already on ${device.id}.`);
+    }
+  }
+
+  // Usage belongs to the child, so it follows them whichever tag they wear.
+  #recordUsage(device) {
+    const { session } = device;
+    if (!session?.childId) return;
+    this.#usage.push({
+      id: newSessionId(),
+      childId: session.childId,
+      deviceId: device.id,
+      startedAt: session.startedAt,
+      endedAt: this.now(),
+      allocatedMs: session.durationMs,
+    });
   }
 
   #openSession(id) {
@@ -225,19 +309,25 @@ export class Store extends EventEmitter {
     if (device.session && !force) {
       throw new StoreError(409, 'session_open', `${id} has a session. End it before removing.`);
     }
+    this.#recordUsage(device);
     this.#devices.delete(id);
     this.#commit();
     this.emit('session', { deviceId: id, session: null });
   }
 
-  startSession(id, { durationSeconds, label } = {}) {
+  startSession(id, { durationSeconds, label, childId = null } = {}) {
     const device = this.#device(id);
     if (device.session) throw new StoreError(409, 'session_open', `${id} already has a session.`);
     const duration = durationMs(durationSeconds);
+    if (childId !== null) {
+      this.#child(childId);
+      this.#requireFree(childId);
+    }
     const startedAt = this.now();
     if (label !== undefined) device.label = cleanLabel(label);
     device.session = {
       id: newSessionId(),
+      childId,
       startedAt,
       endsAt: startedAt + duration,
       durationMs: duration,
@@ -263,9 +353,125 @@ export class Store extends EventEmitter {
 
   endSession(id) {
     const device = this.#openSession(id);
+    this.#recordUsage(device);
     device.session = null;
     this.#sessionChanged(device);
     return device;
+  }
+
+  // Corrects who is wearing a tag during a session. The watch is not told, because
+  // nothing it shows depends on the child.
+  assignChild(id, { childId = null } = {}) {
+    const device = this.#openSession(id);
+    if (childId !== null) {
+      this.#child(childId);
+      this.#requireFree(childId, id);
+    }
+    device.session.childId = childId;
+    this.#commit();
+    return device;
+  }
+
+  addParent({ name, phone, email } = {}) {
+    const parent = {
+      id: newSessionId(),
+      name: cleanName(name),
+      phone: cleanPhone(phone),
+      email: cleanEmail(email),
+      createdAt: this.now(),
+    };
+    this.#parents.set(parent.id, parent);
+    this.#commit();
+    return parent;
+  }
+
+  updateParent(id, { name, phone, email } = {}) {
+    const parent = this.#parent(id);
+    Object.assign(parent, { name: cleanName(name), phone: cleanPhone(phone), email: cleanEmail(email) });
+    this.#commit();
+    return parent;
+  }
+
+  removeParent(id) {
+    this.#parent(id);
+    this.#parents.delete(id);
+    for (const child of this.#children.values()) {
+      child.parentIds = child.parentIds.filter((parentId) => parentId !== id);
+    }
+    this.#commit();
+  }
+
+  #parentIds(value = []) {
+    if (!Array.isArray(value)) throw new StoreError(400, 'invalid_parents', 'Parents must be a list.');
+    for (const id of value) this.#parent(id);
+    return [...new Set(value)];
+  }
+
+  addChild({ name, parentIds } = {}) {
+    const child = {
+      id: newSessionId(),
+      name: cleanName(name),
+      parentIds: this.#parentIds(parentIds),
+      createdAt: this.now(),
+    };
+    this.#children.set(child.id, child);
+    this.#commit();
+    return child;
+  }
+
+  updateChild(id, { name, parentIds } = {}) {
+    const child = this.#child(id);
+    Object.assign(child, { name: cleanName(name), parentIds: this.#parentIds(parentIds) });
+    this.#commit();
+    return child;
+  }
+
+  // Removes the whole record, so a family can ask for their data to be deleted.
+  removeChild(id) {
+    const child = this.#child(id);
+    this.#requireFree(id);
+    this.#children.delete(child.id);
+    this.#usage = this.#usage.filter((row) => row.childId !== id);
+    this.#commit();
+  }
+
+  usageCount() {
+    return this.#usage.length;
+  }
+
+  people() {
+    const totals = new Map();
+    for (const row of this.#usage) {
+      const total = totals.get(row.childId) ?? { visits: 0, totalMs: 0, lastVisitAt: null };
+      total.visits += 1;
+      total.totalMs += row.endedAt - row.startedAt;
+      total.lastVisitAt = Math.max(total.lastVisitAt ?? 0, row.startedAt);
+      totals.set(row.childId, total);
+    }
+    const byName = (a, b) => a.name.localeCompare(b.name);
+    const children = [...this.#children.values()].sort(byName).map((child) => ({
+      ...child,
+      ...(totals.get(child.id) ?? { visits: 0, totalMs: 0, lastVisitAt: null }),
+      activeDeviceId: this.#deviceWithChild(child.id)?.id ?? null,
+    }));
+    const parents = [...this.#parents.values()].sort(byName).map((parent) => ({
+      ...parent,
+      childIds: children.filter((child) => child.parentIds.includes(parent.id)).map((child) => child.id),
+    }));
+    return { parents, children };
+  }
+
+  childDetail(id) {
+    const child = this.people().children.find((item) => item.id === id);
+    if (!child) this.#child(id);
+    return {
+      ...child,
+      parents: child.parentIds.map((parentId) => this.#parents.get(parentId)),
+      usage: this.#usage
+        .filter((row) => row.childId === id)
+        .sort((a, b) => b.startedAt - a.startedAt)
+        .slice(0, USAGE_SHOWN),
+    };
   }
 
   // Demo seeding only: shows an expired wristband on first run.
@@ -284,6 +490,7 @@ export class Store extends EventEmitter {
     if (!device?.session || device.session.id !== sessionId) return false;
     const session = device.session;
     const now = this.now();
+    this.#recordUsage(device);
     device.session = {
       ...session,
       id: newSessionId(),
@@ -334,6 +541,11 @@ export class Store extends EventEmitter {
     if (online && live) this.recordSighting({ deviceId });
   }
 
+  #childSummary(childId) {
+    const child = this.#children.get(childId);
+    return child ? { id: child.id, name: child.name } : null;
+  }
+
   snapshot() {
     const now = this.now();
     for (const [id, entry] of this.#nearby) {
@@ -345,6 +557,7 @@ export class Store extends EventEmitter {
         const recent = device.lastSeenAt !== null && now - device.lastSeenAt <= this.offlineAfterMs;
         return {
           ...device,
+          child: this.#childSummary(device.session?.childId),
           state: sessionState(device.session, now),
           // Negative once expired: the amount of overrun.
           remainingMs: device.session ? device.session.endsAt - now : null,
@@ -357,6 +570,12 @@ export class Store extends EventEmitter {
           },
         };
       });
-    return { serverTime: now, offlineAfterMs: this.offlineAfterMs, devices, nearby: [...this.#nearby.values()] };
+    return {
+      serverTime: now,
+      offlineAfterMs: this.offlineAfterMs,
+      revision: this.#revision,
+      devices,
+      nearby: [...this.#nearby.values()],
+    };
   }
 }

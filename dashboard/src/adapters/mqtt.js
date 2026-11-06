@@ -21,7 +21,7 @@ const sessionTopic = (deviceId) => `playpulse/v1/devices/${deviceId}/session`;
 
 function sessionPayload(session) {
   if (!session) return { sessionId: null };
-  return { sessionId: session.id, endsAt: session.endsAt, warningMs: session.warningMs };
+  return { sessionId: session.id, endsAt: session.endsAt, warningMs: session.warningMs, durationMs: session.durationMs };
 }
 
 function validTelemetry(body) {

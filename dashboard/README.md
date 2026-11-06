@@ -1,7 +1,9 @@
 # PlayPulse dashboard
 
 Local staff dashboard for PlayPulse wristbands. Staff register wristbands, run
-sessions, and see which ones are expired or ending soon.
+sessions, see which ones are expired or ending soon, and keep child and parent
+profiles with each child's usage. It works on phones and follows the device's light
+or dark setting.
 
 It runs in one of two modes:
 
@@ -64,7 +66,7 @@ node --env-file=../broker/.env tools/fake-watch.js PlayPark_Tag_99
 | --- | --- | --- |
 | `PORT` | `4310` | Web port |
 | `HOST` | `127.0.0.1` | Bind address. Any address other than loopback needs `DASHBOARD_PASSWORD`. |
-| `DASHBOARD_PASSWORD` | none | Staff password for the page and the API. The browser asks for it; any username works. |
+| `DASHBOARD_PASSWORD` | none | Staff password for the login screen. A sign-in lasts 12 hours, or until the server restarts. |
 | `ADAPTER` | `simulator` | `simulator` or `mqtt` |
 | `PLAYPULSE_DATA` | `data/playpulse.json` | Data file, relative to `dashboard/` |
 | `MQTT_URL`, `MQTT_USERNAME`, `MQTT_PASSWORD` | none | Broker connection, required for `mqtt` |
@@ -78,8 +80,9 @@ Node.js, a JSON file, Server-Sent Events and vanilla JavaScript. There is no
 build step or native SQLite build on Windows, a handful of wristbands is very
 little state, and the page only needs updates from the server. The one runtime
 dependency is the `mqtt` package, because MQTT has to handle reconnection, QoS and
-Last Will correctly and hand-writing that would be the riskiest code here. Move
-to SQLite if ended sessions need keeping for reporting.
+Last Will correctly and hand-writing that would be the riskiest code here. Usage history is in the same JSON file,
+which is rewritten on each change, so move to SQLite when it reaches tens of
+thousands of sessions or needs reporting.
 
 ## How it behaves
 
@@ -94,8 +97,12 @@ to SQLite if ended sessions need keeping for reporting.
   so the visitor gets all the time granted.
 - **Online** means the last status was online and the wristband was heard in the
   last 15 seconds. A Last Will takes it offline straight away.
-- **Ended sessions are not kept.** Only the current session of each wristband is
-  stored.
+- **Usage follows the child.** Starting a session on a tag assigns it to a child.
+  The tag is free again when the session ends, and the child keeps a history of
+  every session and which tag they wore. Walk-in sessions without a profile are not
+  kept.
+- **One tag per child.** A child already on a tag can't start on another.
+- **Deleting a child deletes their history.** A family can ask for this.
 
 With MQTT, each wristband also shows what the watch reports. A different session,
 a state that doesn't fit, or a countdown more than 3 seconds out is flagged as a
@@ -116,7 +123,8 @@ need no new adapter if they publish the same topics.
 
 ```text
 server.js              wiring and startup
-src/store.js           devices, sessions, state rules, persistence
+src/store.js           devices, sessions, children, parents, usage, persistence
+src/auth.js            staff sign-in
 src/app.js             HTTP API, live events, static files
 src/connect-feed.js    joins an adapter to the store
 src/seed.js            first-run demo data (simulator only, generic labels)

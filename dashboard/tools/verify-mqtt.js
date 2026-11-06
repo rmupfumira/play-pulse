@@ -149,7 +149,7 @@ try {
       const value = seenSession(WATCH);
       return value?.sessionId === firstId && value;
     });
-    assert.deepEqual(sent, { sessionId: firstId, endsAt: session.endsAt, warningMs: 20_000 });
+    assert.deepEqual(sent, { sessionId: firstId, endsAt: session.endsAt, warningMs: 20_000, durationMs: 60_000 });
     await until('watch received it', async () => watch.session?.sessionId === firstId);
     await until('report agrees', async () => (await device(WATCH)).report?.verdict === 'ok');
     assert.equal((await device(WATCH)).report.state, 'green');

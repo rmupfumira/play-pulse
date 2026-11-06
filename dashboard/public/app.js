@@ -3,16 +3,24 @@
 // update carries the current remaining time.
 const STALE_AFTER_MS = 4000;
 const TOAST_MS = 4000;
-const STATE_TEXT = { idle: 'No session', green: 'Active', yellow: 'Ending soon', red: 'Expired' };
+const STATE_TEXT = { idle: 'No session', green: 'Active', yellow: 'Ending soon', red: 'Time up' };
+const STATE_ORDER = { red: 0, yellow: 1, green: 2, idle: 3 };
+const FILTERS = {
+  green: (item) => item.state === 'green',
+  yellow: (item) => item.state === 'yellow',
+  red: (item) => item.state === 'red',
+  offline: (item) => !item.online,
+  mismatch: (item) => isMismatch(item),
+};
 const START_PRESETS = [
-  { seconds: 30, text: '30 sec (bench)' },
+  { seconds: 30, text: '30 sec' },
   { seconds: 900, text: '15 min' },
   { seconds: 1800, text: '30 min', preselected: true },
   { seconds: 3600, text: '60 min' },
   { seconds: 5400, text: '90 min' },
 ];
 const EXTEND_PRESETS = [
-  { seconds: 30, text: '+30 sec (bench)' },
+  { seconds: 30, text: '+30 sec' },
   { seconds: 300, text: '+5 min' },
   { seconds: 900, text: '+15 min', preselected: true },
   { seconds: 1800, text: '+30 min' },
@@ -24,10 +32,31 @@ const field = (root, name) => root.querySelector(`[data-f="${name}"]`);
 let snap = null;
 let lastUpdateAt = 0;
 let toastTimer = null;
+let filter = null;
+let moreDeviceId = null;
+let view = 'bands';
+let people = { parents: [], children: [] };
+let peopleRevision = null;
 const knownRestarts = new Map();
 
 function displayName(device) {
-  return device.label || 'Unassigned';
+  return device.child?.name || device.label || 'Unassigned';
+}
+
+function initials(name) {
+  return name.split(/\s+/).slice(0, 2).map((word) => word[0]).join('').toUpperCase();
+}
+
+// Reads as "1h 25m", which is easier to scan in a history than a clock.
+function spanText(ms) {
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 1) return ms > 0 ? 'Under 1m' : '0m';
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+}
+
+function dateText(at) {
+  return new Date(at).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function device(id) {
@@ -42,9 +71,28 @@ function clock(ms) {
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`;
 }
 
-function timeText(item) {
-  if (item.state === 'idle') return '-';
-  return item.state === 'red' ? `Over by ${clock(item.remainingMs)}` : clock(item.remainingMs);
+function dialText(item) {
+  if (item.state === 'idle') return 'Ready';
+  return item.state === 'red' ? `+${clock(item.remainingMs)}` : clock(item.remainingMs);
+}
+
+function stateText(item) {
+  return item.state === 'red' ? `Time up, over by ${clock(item.remainingMs)}` : STATE_TEXT[item.state];
+}
+
+// How much of the session is left, for the ring.
+function dialPercent(item) {
+  if (item.state === 'idle') return 0;
+  if (item.state === 'red') return 100;
+  return Math.max(0, Math.min(100, (item.remainingMs / item.session.durationMs) * 100));
+}
+
+function signalText(rssi) {
+  if (rssi === null) return '';
+  if (rssi >= -60) return 'strong signal';
+  if (rssi >= -72) return 'good signal';
+  if (rssi >= -82) return 'weak signal';
+  return 'poor signal';
 }
 
 function agoText(at) {
@@ -114,39 +162,38 @@ function syncList(container, items, templateId, update) {
   });
 }
 
-function updateRow(row, item) {
-  const label = field(row, 'label');
-  label.textContent = displayName(item);
-  label.classList.toggle('unassigned', !item.label);
-  field(row, 'id').textContent = item.id;
-  const state = field(row, 'state');
-  state.textContent = STATE_TEXT[item.state];
-  state.dataset.state = item.state;
-  field(row, 'time').textContent = timeText(item);
-  const seen = field(row, 'seen');
-  seen.textContent = item.rssi === null ? agoText(item.lastSeenAt) : `${agoText(item.lastSeenAt)} · ${item.rssi} dBm`;
-  seen.title = item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleString() : '';
-  const link = field(row, 'link');
-  link.textContent = item.online ? 'Online' : 'Offline';
-  link.dataset.online = item.online;
-  link.title = item.firmware ? `Firmware ${item.firmware}` : '';
-  setNote(field(row, 'restart'), { text: restartText(item) });
-  setNote(field(row, 'watch'), snap.adapter.canCommandDevices ? watchNote(item) : { text: '' });
-  const hasSession = item.state !== 'idle';
-  row.querySelector('[data-action="start"]').hidden = hasSession;
-  row.querySelector('[data-action="extend"]').hidden = !hasSession;
-  row.querySelector('[data-action="end"]').hidden = !hasSession;
-}
-
 function updateCard(card, item) {
   card.dataset.state = item.state;
-  field(card, 'state').textContent = STATE_TEXT[item.state];
-  field(card, 'offline').hidden = item.online;
-  field(card, 'label').textContent = displayName(item);
+  const label = field(card, 'label');
+  label.textContent = displayName(item);
+  label.toggleAttribute('data-unassigned', !item.child && !item.label);
   field(card, 'id').textContent = item.id;
-  field(card, 'time').textContent = timeText(item);
-  setNote(field(card, 'watch'), isMismatch(item) ? watchNote(item) : { text: '' });
+
+  const time = dialText(item);
+  field(card, 'time').textContent = time;
+  card.toggleAttribute('data-long', time.length > 5);
+  field(card, 'dial').setAttribute('stroke-dasharray', `${dialPercent(item)} 100`);
+
+  const state = field(card, 'state');
+  state.textContent = stateText(item);
+  state.dataset.state = item.state;
+
+  const link = field(card, 'link');
+  const signal = item.online ? signalText(item.rssi) : '';
+  const heard = item.online ? 'Online' : `Offline, seen ${agoText(item.lastSeenAt).toLowerCase()}`;
+  link.textContent = signal ? `${heard}, ${signal}` : heard;
+  link.dataset.online = item.online;
+  link.title = [item.firmware && `Firmware ${item.firmware}`, item.rssi !== null && `${item.rssi} dBm`]
+    .filter(Boolean).join(', ');
+
   setNote(field(card, 'restart'), { text: restartText(item) });
+  // Only a problem is worth a line on the card.
+  setNote(field(card, 'watch'), snap.adapter.canCommandDevices && isMismatch(item) ? watchNote(item) : { text: '' });
+
+  const hasSession = item.state !== 'idle';
+  card.querySelector('[data-action="start"]').hidden = hasSession;
+  card.querySelector('[data-action="extend"]').hidden = !hasSession;
+  card.querySelector('[data-action="end"]').hidden = !hasSession;
 }
 
 function updateNearby(row, item) {
@@ -178,33 +225,97 @@ function render() {
     : adapter.detail;
   const commands = adapter.canCommandDevices ? '' : ' Session times are not sent to the watches.';
   el('feed-detail').textContent = presence + commands;
+  el('sign-out').hidden = !snap.signInRequired;
+  if (snap.revision !== peopleRevision) refreshPeople();
 
-  const count = (state) => devices.filter((item) => item.state === state).length;
+  const count = (name) => devices.filter(FILTERS[name]).length;
   const expired = count('red');
   const ending = count('yellow');
-  el('count-green').textContent = count('green');
-  el('count-yellow').textContent = ending;
-  el('count-red').textContent = expired;
-  el('count-offline').textContent = devices.filter((item) => !item.online).length;
-  const mismatches = devices.filter(isMismatch).length;
-  el('count-mismatch').textContent = mismatches;
-  el('mismatch-count').hidden = mismatches === 0;
+  for (const name of Object.keys(FILTERS)) el(`count-${name}`).textContent = count(name);
+  el('mismatch-tile').hidden = count('mismatch') === 0;
+  if (filter === 'mismatch' && count('mismatch') === 0) setFilter(null);
   announceRestarts(devices);
-  document.title = expired + ending > 0 ? `(${expired + ending}) PlayPulse Wristbands` : 'PlayPulse Wristbands';
+  document.title = expired + ending > 0 ? `(${expired + ending}) PlayPulse` : 'PlayPulse';
 
-  // Most overrun first, then whichever runs out next.
-  const urgent = devices
-    .filter((item) => item.state === 'red' || item.state === 'yellow')
-    .sort((a, b) => a.remainingMs - b.remainingMs);
-  syncList(el('attention'), urgent, 'attention-card', updateCard);
-  el('attention-empty').hidden = urgent.length > 0;
-
-  syncList(el('devices'), devices, 'device-row', updateRow);
+  // Whatever needs staff comes first, most overrun at the top.
+  const shown = devices
+    .filter(filter ? FILTERS[filter] : () => true)
+    .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state]
+      || (a.state === 'idle' ? 0 : a.remainingMs - b.remainingMs));
+  syncList(el('devices'), shown, 'band-card', updateCard);
   el('devices-empty').hidden = devices.length > 0;
-  el('devices-table').hidden = devices.length === 0;
+  el('filter-empty').hidden = devices.length === 0 || shown.length > 0;
 
   syncList(el('nearby'), nearby, 'nearby-item', updateNearby);
   el('nearby-section').hidden = nearby.length === 0;
+}
+
+async function refreshPeople() {
+  peopleRevision = snap.revision;
+  people = await api('GET', '/api/people').catch(() => people);
+  renderPeople();
+}
+
+function syncPeople(container, items, update) {
+  syncList(container, items, 'person-card', update);
+  for (const item of items) container.elements.get(item.id).dataset.person = item.id;
+}
+
+function matches(item, query) {
+  return item.name.toLowerCase().includes(query.trim().toLowerCase());
+}
+
+function renderPeople() {
+  const parentNames = (child) => child.parentIds
+    .map((id) => people.parents.find((parent) => parent.id === id)?.name)
+    .filter(Boolean).join(', ');
+
+  const children = people.children.filter((child) => matches(child, el('child-search').value));
+  syncPeople(el('children'), children, (card, child) => {
+    field(card, 'initials').textContent = initials(child.name);
+    field(card, 'name').textContent = child.name;
+    field(card, 'line').textContent = parentNames(child) || 'No parent added';
+    field(card, 'detail').textContent = child.visits
+      ? `${spanText(child.totalMs)} over ${child.visits} session${child.visits === 1 ? '' : 's'}`
+      : 'No sessions yet';
+    const live = field(card, 'live');
+    live.hidden = !child.activeDeviceId;
+    live.textContent = 'Playing';
+  });
+  el('children-empty').hidden = people.children.length > 0;
+
+  const parents = people.parents.filter((parent) => matches(parent, el('parent-search').value));
+  syncPeople(el('parents'), parents, (card, parent) => {
+    field(card, 'initials').textContent = initials(parent.name);
+    field(card, 'name').textContent = parent.name;
+    field(card, 'line').textContent = parent.phone || parent.email || 'No contact details';
+    field(card, 'detail').textContent = parent.childIds
+      .map((id) => people.children.find((child) => child.id === id)?.name)
+      .filter(Boolean).join(', ') || 'No children linked';
+  });
+  el('parents-empty').hidden = people.parents.length > 0;
+}
+
+const ADD_TEXT = { bands: 'Add wristband', children: 'Add child', parents: 'Add parent' };
+
+function setView(name) {
+  view = name;
+  for (const tab of document.querySelectorAll('[data-view]')) {
+    if (tab.dataset.view === name) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
+  }
+  for (const key of Object.keys(ADD_TEXT)) el(`view-${key}`).hidden = key !== name;
+  el('top-add-text').textContent = ADD_TEXT[name];
+  el('fab').setAttribute('aria-label', ADD_TEXT[name]);
+  scrollTo(0, 0);
+}
+
+function setFilter(name) {
+  filter = name;
+  for (const tile of document.querySelectorAll('[data-filter]')) {
+    tile.setAttribute('aria-pressed', tile.dataset.filter === name);
+  }
+  el('clear-filter').hidden = name === null;
 }
 
 function connect() {
@@ -213,6 +324,11 @@ function connect() {
     snap = JSON.parse(event.data);
     lastUpdateAt = Date.now();
     render();
+  });
+  // The stream can't report a 401 itself, so check whether the sign-in has expired.
+  stream.addEventListener('error', async () => {
+    const response = await fetch('/api/state').catch(() => null);
+    if (response?.status === 401) location.replace('/login');
   });
 }
 
@@ -226,9 +342,10 @@ async function api(method, path, body = {}) {
   const response = await fetch(path, {
     method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: method === 'GET' ? undefined : JSON.stringify(body),
   });
   if (response.ok) return response.json();
+  if (response.status === 401) location.replace('/login');
   const failure = await response.json().catch(() => null);
   throw new Error(failure?.error?.message ?? `Request failed (${response.status}).`);
 }
@@ -337,9 +454,158 @@ function openSessionDialog(item, { title, submit, presets, showLabel, action }) 
   field(dialog, 'device').textContent = `${displayName(item)} · ${item.id}`;
   field(dialog, 'submit').textContent = submit;
   field(dialog, 'label-field').hidden = !showLabel;
+  field(dialog, 'child-field').hidden = !showLabel;
+  fillChildChoices(form.elements.childId, null);
+  syncLabelField(dialog);
   form.elements.label.value = item.label;
   setPresets(dialog, presets);
   openDialog(dialog, action);
+}
+
+// Children already on a tag are left out, as the server would refuse them.
+function fillChildChoices(select, currentId) {
+  const none = new Option('Walk-in, no profile', '');
+  const free = people.children.filter((child) => !child.activeDeviceId || child.id === currentId);
+  select.replaceChildren(none, ...free.map((child) => new Option(child.name, child.id)));
+  select.value = currentId ?? '';
+}
+
+function syncLabelField(dialog) {
+  const form = dialog.querySelector('form');
+  field(dialog, 'label-field').hidden = field(dialog, 'child-field').hidden || form.elements.childId.value !== '';
+}
+
+function openAssign(item) {
+  const dialog = el('assign-dialog');
+  field(dialog, 'device').textContent = item.id;
+  const select = dialog.querySelector('select');
+  fillChildChoices(select, item.child?.id ?? null);
+  openDialog(dialog, async (data) => {
+    await api('POST', `${devicePath(item.id)}/child`, { childId: data.get('childId') || null });
+    return `${item.id} updated.`;
+  });
+}
+
+function openChild(child = null) {
+  const dialog = el('child-dialog');
+  const form = dialog.querySelector('form');
+  form.reset();
+  field(dialog, 'title').textContent = child ? 'Edit child' : 'Add child';
+  field(dialog, 'submit').textContent = child ? 'Save' : 'Add child';
+  form.elements.name.value = child?.name ?? '';
+
+  const box = field(dialog, 'parents');
+  box.replaceChildren(...people.parents.map((parent) => {
+    const label = document.createElement('label');
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.name = 'parentIds';
+    check.value = parent.id;
+    check.checked = child?.parentIds.includes(parent.id) ?? false;
+    label.append(check, parent.name);
+    return label;
+  }));
+  field(dialog, 'parents-field').hidden = people.parents.length === 0;
+
+  openDialog(dialog, async (data) => {
+    const parentIds = data.getAll('parentIds');
+    const newParent = data.get('parentName').trim();
+    if (newParent) {
+      const parent = await api('POST', '/api/parents', { name: newParent, phone: data.get('parentPhone') });
+      parentIds.push(parent.id);
+    }
+    const body = { name: data.get('name'), parentIds };
+    if (child) await api('PATCH', `/api/children/${child.id}`, body);
+    else await api('POST', '/api/children', body);
+    return child ? 'Child updated.' : `${body.name.trim()} added.`;
+  });
+}
+
+function openParent(parent = null) {
+  const dialog = el('parent-dialog');
+  const form = dialog.querySelector('form');
+  form.reset();
+  field(dialog, 'title').textContent = parent ? 'Edit parent' : 'Add parent';
+  field(dialog, 'submit').textContent = parent ? 'Save' : 'Add parent';
+  form.elements.name.value = parent?.name ?? '';
+  form.elements.phone.value = parent?.phone ?? '';
+  form.elements.email.value = parent?.email ?? '';
+  const names = (parent?.childIds ?? []).map((id) => people.children.find((child) => child.id === id)?.name);
+  field(dialog, 'children').textContent = names.length ? `Children: ${names.join(', ')}` : '';
+  const remove = field(dialog, 'remove');
+  remove.hidden = !parent;
+  remove.onclick = () => {
+    dialog.close();
+    openConfirm({
+      title: 'Remove parent?',
+      body: `${parent.name} will be removed. Their children stay on the system.`,
+      submit: 'Remove',
+      action: async () => {
+        await api('DELETE', `/api/parents/${parent.id}`);
+        return `${parent.name} removed.`;
+      },
+    });
+  };
+  openDialog(dialog, async (data) => {
+    const body = { name: data.get('name'), phone: data.get('phone'), email: data.get('email') };
+    if (parent) await api('PATCH', `/api/parents/${parent.id}`, body);
+    else await api('POST', '/api/parents', body);
+    return parent ? 'Parent updated.' : `${body.name.trim()} added.`;
+  });
+}
+
+function contactItem(parent) {
+  const row = document.createElement('li');
+  const name = document.createElement('span');
+  name.textContent = parent.name;
+  row.append(name);
+  if (parent.phone) {
+    const call = document.createElement('a');
+    call.href = `tel:${parent.phone.replace(/[^+0-9]/g, '')}`;
+    call.textContent = parent.phone;
+    row.append(call);
+  }
+  return row;
+}
+
+function usageItem(row) {
+  const item = el('usage-row').content.firstElementChild.cloneNode(true);
+  field(item, 'date').textContent = dateText(row.startedAt);
+  field(item, 'tag').textContent = `${timeOfDay(row.startedAt)} on ${row.deviceId}`;
+  field(item, 'used').textContent = spanText(row.endedAt - row.startedAt);
+  field(item, 'allocated').textContent = `of ${spanText(row.allocatedMs)}`;
+  return item;
+}
+
+async function openProfile(id) {
+  const child = await api('GET', `/api/children/${id}`).catch((err) => toast(err.message));
+  if (!child) return;
+  const dialog = el('profile-dialog');
+  field(dialog, 'initials').textContent = initials(child.name);
+  field(dialog, 'name').textContent = child.name;
+  field(dialog, 'live').textContent = child.activeDeviceId ? `Playing now on ${child.activeDeviceId}` : 'Not playing now';
+  field(dialog, 'total').textContent = spanText(child.totalMs);
+  field(dialog, 'visits').textContent = child.visits;
+  field(dialog, 'parents').replaceChildren(...child.parents.map(contactItem));
+  field(dialog, 'usage').replaceChildren(...child.usage.map(usageItem));
+  field(dialog, 'usage-empty').hidden = child.usage.length > 0;
+  field(dialog, 'edit').onclick = () => {
+    dialog.close();
+    openChild(child);
+  };
+  field(dialog, 'remove').onclick = () => {
+    dialog.close();
+    openConfirm({
+      title: 'Delete child and history?',
+      body: `${child.name} and all their usage history will be deleted. This cannot be undone.`,
+      submit: 'Delete',
+      action: async () => {
+        await api('DELETE', `/api/children/${child.id}`);
+        return `${child.name} deleted.`;
+      },
+    });
+  };
+  dialog.showModal();
 }
 
 function openStart(item) {
@@ -349,7 +615,8 @@ function openStart(item) {
     presets: START_PRESETS,
     showLabel: true,
     action: async (data) => {
-      const body = { durationSeconds: chosenSeconds(data), label: data.get('label') };
+      const childId = data.get('childId') || null;
+      const body = { durationSeconds: chosenSeconds(data), label: data.get('label'), childId };
       await api('POST', `${devicePath(item.id)}/session`, body);
       return `Session started on ${item.id}.`;
     },
@@ -368,6 +635,16 @@ function openExtend(item) {
       return `Session extended on ${item.id}.`;
     },
   });
+}
+
+function openMore(item) {
+  const dialog = el('more-dialog');
+  moreDeviceId = item.id;
+  field(dialog, 'title').textContent = displayName(item);
+  field(dialog, 'device').textContent = item.firmware ? `${item.id}, firmware ${item.firmware}` : item.id;
+  dialog.querySelector('[data-more="assign"]').hidden = item.state === 'idle';
+  dialog.querySelector('[data-more="profile"]').hidden = !item.child;
+  dialog.showModal();
 }
 
 function openConfirm({ title, body, submit, action }) {
@@ -411,11 +688,21 @@ function askRemove(item) {
 }
 
 const actions = {
-  register: () => openRegister(),
+  add: () => ({ bands: openRegister, children: openChild, parents: openParent })[view](),
   'register-nearby': (_item, id) => openRegister(id),
   start: openStart,
   extend: openExtend,
   end: askEnd,
+  more: openMore,
+  'clear-filter': () => { setFilter(null); render(); },
+  'sign-out': async () => {
+    await api('POST', '/api/logout');
+    location.replace('/login');
+  },
+};
+const moreActions = {
+  assign: openAssign,
+  profile: (item) => openProfile(item.child.id),
   rename: openRename,
   remove: askRemove,
 };
@@ -425,6 +712,30 @@ document.addEventListener('click', (event) => {
     event.target.closest('dialog').close();
     return;
   }
+  const more = event.target.closest('[data-more]');
+  if (more) {
+    el('more-dialog').close();
+    const item = device(moreDeviceId);
+    if (item) moreActions[more.dataset.more](item);
+    return;
+  }
+  const tile = event.target.closest('[data-filter]');
+  if (tile) {
+    setFilter(filter === tile.dataset.filter ? null : tile.dataset.filter);
+    render();
+    return;
+  }
+  const tab = event.target.closest('[data-view]');
+  if (tab) {
+    setView(tab.dataset.view);
+    return;
+  }
+  const person = event.target.closest('[data-person]');
+  if (person) {
+    if (view === 'children') openProfile(person.dataset.person);
+    else openParent(people.parents.find((parent) => parent.id === person.dataset.person));
+    return;
+  }
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const id = button.closest('[data-device]')?.dataset.device;
@@ -432,11 +743,20 @@ document.addEventListener('click', (event) => {
 });
 
 for (const dialog of document.querySelectorAll('dialog')) {
-  dialog.querySelector('form').addEventListener('submit', submitDialog);
+  if (!['more-dialog', 'profile-dialog'].includes(dialog.id)) {
+    dialog.querySelector('form').addEventListener('submit', submitDialog);
+  }
+  // Tapping outside a sheet closes it, as people expect on a phone.
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) dialog.close();
+  });
 }
 el('session-dialog').addEventListener('change', (event) => {
   if (event.target.name === 'preset') syncCustomField(el('session-dialog'));
+  if (event.target.name === 'childId') syncLabelField(el('session-dialog'));
 });
+el('child-search').addEventListener('input', renderPeople);
+el('parent-search').addEventListener('input', renderPeople);
 
 connect();
 setInterval(watchConnection, 1000);

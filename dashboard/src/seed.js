@@ -17,4 +17,8 @@ export function seedDemoData(store) {
     if (minutes) store.startSession(id, { durationSeconds: minutes * 60 });
     if (expired) store.backdateSession(id, 2 * MINUTE);
   }
+
+  const parent = store.addParent({ name: 'Parent A', phone: '+27 82 000 0000' });
+  store.addChild({ name: 'Child A', parentIds: [parent.id] });
+  store.addChild({ name: 'Child B', parentIds: [parent.id] });
 }

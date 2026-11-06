@@ -37,8 +37,8 @@ Start it:
 docker compose up -d --build
 ```
 
-The dashboard is at `http://<server-address>:4311`. The browser asks for a login:
-any username, and `DASHBOARD_PASSWORD` from `.env`. A banner on the page says if it
+The dashboard is at `http://<server-address>:4311`. Sign in with `DASHBOARD_PASSWORD`
+from `.env`. A sign-in lasts 12 hours, or until the container restarts. A banner on the page says if it
 cannot reach the broker.
 
 The container restarts with Docker. Registered wristbands and sessions are kept in a
@@ -95,3 +95,16 @@ For a trusted network only.
 - The dashboard password and the broker password both cross the network unencrypted.
   Do not forward either port to the internet.
 - All staff share one dashboard password, and all watches share one broker account.
+
+## Children's data
+
+The dashboard stores children's names, parents' contact details and when each child
+played. Names and contact details stay on the dashboard server and are never sent to
+the watches or the broker.
+
+- The data is in the `dashboard-data` Docker volume, unencrypted, so back it up and
+  protect it like any other personal data.
+- Get a parent's consent before adding a child, and check what your local privacy law
+  requires. POPIA applies in South Africa.
+- Add TLS before real use, because this data crosses the network unencrypted.
+- Never put real names in this repository, including in test data.

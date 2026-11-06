@@ -118,12 +118,12 @@ test('session changes are published with the contract payload at QoS 1, retained
   const { id } = device('tag').session;
   assert.deepEqual(last('tag'), {
     topic: sessionTopic('tag'),
-    body: { sessionId: id, endsAt: NOW + 30_000, warningMs: 10_000 },
+    body: { sessionId: id, endsAt: NOW + 30_000, warningMs: 10_000, durationMs: 30_000 },
     options: { qos: 1, retain: true },
   });
 
   store.extendSession('tag', { durationSeconds: 30 });
-  assert.deepEqual(last('tag').body, { sessionId: id, endsAt: NOW + 60_000, warningMs: 10_000 });
+  assert.deepEqual(last('tag').body, { sessionId: id, endsAt: NOW + 60_000, warningMs: 10_000, durationMs: 60_000 });
 
   store.endSession('tag');
   assert.deepEqual(last('tag').body, { sessionId: null });
@@ -217,7 +217,7 @@ test('restart_requested restarts the current session and republishes it', () => 
   assert.equal(session.restarts, 1);
   assert.equal(session.lastRestartAt, clock.t);
   assert.deepEqual(client.to(sessionTopic('tag')).at(-1).body, {
-    sessionId: session.id, endsAt: clock.t + 30_000, warningMs: 10_000,
+    sessionId: session.id, endsAt: clock.t + 30_000, warningMs: 10_000, durationMs: 30_000,
   });
 });
 

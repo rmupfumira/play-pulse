@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createAdapter } from './src/adapters/index.js';
 import { createApp } from './src/app.js';
+import { Logins } from './src/auth.js';
 import { connectFeed } from './src/connect-feed.js';
 import { seedDemoData } from './src/seed.js';
 import { Store } from './src/store.js';
@@ -31,7 +32,8 @@ connectFeed(store, adapter);
 adapter.start();
 store.startFlushing();
 
-const server = createApp({ store, adapter, publicDir: join(root, 'public'), password });
+const logins = password ? new Logins(password) : undefined;
+const server = createApp({ store, adapter, publicDir: join(root, 'public'), logins });
 server.listen(port, host, () => {
   console.log(`PlayPulse dashboard: http://${host === '127.0.0.1' ? 'localhost' : host}:${port}`);
   console.log(`Feed: ${adapter.info().name}. Data: ${file}`);

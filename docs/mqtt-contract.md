@@ -44,8 +44,12 @@ live within 10 s. Until then a watch's countdown runs high by the age of the mes
 Active session:
 
 ```json
-{ "sessionId": "abc123", "endsAt": 1793940030000, "warningMs": 10000 }
+{ "sessionId": "abc123", "endsAt": 1793940030000, "warningMs": 10000, "durationMs": 30000 }
 ```
+
+`durationMs` is the session's length including any extensions. The watch uses it to
+show how much of the session is left. If it is missing, the watch treats the time
+left when it first saw the session as the full length.
 
 No session. Publish this rather than clearing the retained message, so a watch can tell
 "no session" from "not heard yet":
