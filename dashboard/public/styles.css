@@ -231,6 +231,7 @@ main.stale { opacity: .45; }
 
 .battery { color: var(--muted); }
 .battery[data-low="true"] { color: var(--amber); }
+.battery[data-charging="true"] { color: var(--green); }
 .link { color: var(--muted); }
 .link::before {
   content: "";
@@ -280,7 +281,7 @@ main.stale { opacity: .45; }
   left: 0;
   z-index: 6;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   background: var(--surface);
@@ -301,6 +302,29 @@ main.stale { opacity: .45; }
   touch-action: manipulation;
 }
 .tab[aria-current="page"] { color: var(--accent); }
+
+/* Devices list: a table when there is room, stacked rows on a phone. */
+.device-table { border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+.device-table table { width: 100%; border-collapse: collapse; }
+.device-table th { padding: 12px 14px; color: var(--muted); font-size: 13px; font-weight: 500; text-align: left; }
+.device-table td { padding: 12px 14px; border-top: 1px solid var(--line); font-size: 15px; vertical-align: middle; }
+.device-who { display: grid; }
+.device-name { font-weight: 600; overflow-wrap: anywhere; }
+.device-note { display: block; color: var(--red); font-size: 14px; }
+.device-more { width: 44px; padding: 0 6px !important; }
+
+@media (max-width: 759px) {
+  .device-table { display: block; }
+  .device-table thead { display: none; }
+  .device-table table, .device-table tbody { display: block; }
+  .device-table tr { position: relative; display: block; padding: 12px 14px; }
+  .device-table tr + tr { border-top: 1px solid var(--line); }
+  .device-table td { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; border: 0; text-align: right; }
+  .device-table td[data-label]::before { content: attr(data-label); color: var(--muted); font-size: 14px; text-align: left; }
+  .device-table td span { min-width: 0; }
+  .device-who { display: grid; padding-right: 44px !important; text-align: left !important; }
+  .device-more { position: absolute; top: 6px; right: 6px; }
+}
 
 /* Children and parents */
 .search {

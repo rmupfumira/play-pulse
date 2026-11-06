@@ -113,7 +113,7 @@ function timeOfDay(at) {
 
 const hasRequest = (item) => Boolean(item.session?.extensionRequest);
 
-// A watch that has gone quiet shows as offline, so its old level isn't shown.
+// A watch that has gone quiet shows as offline, so a card leaves out its old level.
 const showsBattery = (item) => item.online && item.battery !== null;
 const isLowBattery = (item) => showsBattery(item)
   && !item.battery.charging
@@ -166,6 +166,15 @@ function syncList(container, items, templateId, update) {
   });
 }
 
+function connectionText(item) {
+  return item.online ? 'Online' : `Offline, seen ${agoText(item.lastSeenAt).toLowerCase()}`;
+}
+
+function setBatteryLook(element, item) {
+  element.dataset.low = isLowBattery(item);
+  element.dataset.charging = showsBattery(item) && item.battery.charging;
+}
+
 function updateCard(card, item) {
   card.dataset.state = item.state;
   const label = field(card, 'label');
@@ -184,7 +193,7 @@ function updateCard(card, item) {
 
   const link = field(card, 'link');
   const signal = item.online ? signalText(item.rssi) : '';
-  const heard = item.online ? 'Online' : `Offline, seen ${agoText(item.lastSeenAt).toLowerCase()}`;
+  const heard = connectionText(item);
   link.textContent = signal ? `${heard}, ${signal}` : heard;
   link.dataset.online = item.online;
   link.title = [item.firmware && `Firmware ${item.firmware}`, item.rssi !== null && `${item.rssi} dBm`]
@@ -192,7 +201,7 @@ function updateCard(card, item) {
 
   const battery = field(card, 'battery');
   battery.hidden = !showsBattery(item);
-  battery.dataset.low = isLowBattery(item);
+  setBatteryLook(battery, item);
   if (showsBattery(item)) {
     battery.textContent = `Battery ${item.battery.percent}%${item.battery.charging ? ', charging' : ''}`;
   }
@@ -207,6 +216,50 @@ function updateCard(card, item) {
   card.querySelector('[data-action="extend"]').hidden = !hasSession;
   card.querySelector('[data-action="pause"]').hidden = !hasSession || item.state === 'red';
   card.querySelector('[data-action="end"]').hidden = !hasSession;
+}
+
+// The operator's list shows every watch's last known level, labelled as such once
+// the watch has gone offline.
+function batteryListText(item) {
+  if (item.battery === null) return 'Unknown';
+  const level = `${item.battery.percent}%`;
+  if (!item.online) return `Last ${level}`;
+  return item.battery.charging ? `${level}, charging` : level;
+}
+
+function updateDeviceRow(row, item) {
+  field(row, 'name').textContent = displayName(item);
+  field(row, 'id').textContent = item.id;
+
+  const link = field(row, 'link');
+  link.textContent = connectionText(item);
+  link.dataset.online = item.online;
+
+  const state = field(row, 'state');
+  state.textContent = stateText(item);
+  state.dataset.state = item.state;
+  setNote(field(row, 'watch'), snap.adapter.canCommandDevices && isMismatch(item) ? watchNote(item) : { text: '' });
+
+  const battery = field(row, 'battery');
+  battery.textContent = batteryListText(item);
+  setBatteryLook(battery, item);
+
+  const signal = signalText(item.rssi);
+  field(row, 'signal').textContent = item.online && signal
+    ? `${signal[0].toUpperCase()}${signal.slice(1, -7)}, ${item.rssi} dBm`
+    : 'None';
+  field(row, 'firmware').textContent = item.firmware ?? 'Unknown';
+}
+
+function renderDevices(devices) {
+  syncList(el('device-rows'), devices, 'device-row', updateDeviceRow);
+  const online = devices.filter((item) => item.online).length;
+  const playing = devices.filter((item) => item.state !== 'idle').length;
+  const low = devices.filter(isLowBattery).length;
+  el('device-summary').textContent = `${devices.length} wristband${devices.length === 1 ? '' : 's'}: `
+    + `${online} online, ${playing} in session, ${low} low on battery`;
+  el('device-table').hidden = devices.length === 0;
+  el('device-list-empty').hidden = devices.length > 0;
 }
 
 function updateNearby(row, item) {
@@ -261,6 +314,7 @@ function render() {
   el('devices-empty').hidden = devices.length > 0;
   el('filter-empty').hidden = devices.length === 0 || shown.length > 0;
 
+  renderDevices(devices);
   syncList(el('nearby'), nearby, 'nearby-item', updateNearby);
   el('nearby-section').hidden = nearby.length === 0;
 }
@@ -311,7 +365,7 @@ function renderPeople() {
   el('parents-empty').hidden = people.parents.length > 0;
 }
 
-const ADD_TEXT = { bands: 'Add wristband', children: 'Add child', parents: 'Add parent' };
+const ADD_TEXT = { bands: 'Add wristband', devices: 'Add wristband', children: 'Add child', parents: 'Add parent' };
 
 function setView(name) {
   view = name;
@@ -751,7 +805,7 @@ function askRemove(item) {
 }
 
 const actions = {
-  add: () => ({ bands: openRegister, children: openChild, parents: openParent })[view](),
+  add: () => ({ bands: openRegister, devices: openRegister, children: openChild, parents: openParent })[view](),
   'register-nearby': (_item, id) => openRegister(id),
   start: openStart,
   extend: openExtend,

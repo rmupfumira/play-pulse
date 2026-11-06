@@ -40,6 +40,10 @@
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6"/><path d="M9 6l1-3h4l1 3M9 18l1 3h4l1-3"/></svg>
       Wristbands
     </button>
+    <button class="tab" data-view="devices">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      Devices
+    </button>
     <button class="tab" data-view="children">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M5 21c0-4 3-6 7-6s7 2 7 6"/></svg>
       Children
@@ -93,6 +97,30 @@
       </div>
       <p id="filter-empty" class="empty" hidden>Nothing matches this filter.</p>
     </section>
+    </div>
+
+    <div id="view-devices" class="view" hidden>
+      <p id="device-summary" class="muted"></p>
+      <div id="device-table" class="device-table">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Wristband</th>
+              <th scope="col">Connection</th>
+              <th scope="col">Session</th>
+              <th scope="col">Battery</th>
+              <th scope="col">Signal</th>
+              <th scope="col">Firmware</th>
+              <th scope="col" aria-label="Options"></th>
+            </tr>
+          </thead>
+          <tbody id="device-rows"></tbody>
+        </table>
+      </div>
+      <div id="device-list-empty" class="empty" hidden>
+        <p class="empty-title">No wristbands yet</p>
+        <p>Turn a wristband on and it will appear on the Wristbands tab, ready to add.</p>
+      </div>
     </div>
 
     <div id="view-children" class="view" hidden>
@@ -154,6 +182,28 @@
         <button class="btn" data-action="end">End</button>
       </div>
     </article>
+  </template>
+
+  <template id="device-row">
+    <tr>
+      <td class="device-who">
+        <span class="device-name" data-f="name"></span>
+        <span class="band-id" data-f="id"></span>
+      </td>
+      <td data-label="Connection"><span class="link" data-f="link"></span></td>
+      <td data-label="Session">
+        <span class="state" data-f="state"></span>
+        <span class="device-note" data-f="watch" hidden></span>
+      </td>
+      <td data-label="Battery"><span class="battery" data-f="battery"></span></td>
+      <td data-label="Signal"><span class="muted" data-f="signal"></span></td>
+      <td data-label="Firmware"><span class="muted" data-f="firmware"></span></td>
+      <td class="device-more">
+        <button class="icon-btn" data-action="more" aria-label="More options">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
+        </button>
+      </td>
+    </tr>
   </template>
 
   <template id="person-card">
