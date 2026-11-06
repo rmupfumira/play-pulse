@@ -49,13 +49,19 @@ Active session:
   "endsAt": 1793940030000,
   "warningMs": 10000,
   "durationMs": 30000,
-  "extensionPending": false
+  "extensionPending": false,
+  "wearer": "Amy B"
 }
 ```
 
 `durationMs` is the session's length including any extensions. The watch uses it to
 show how much of the session is left. If it is missing, the watch treats the time
 left when it first saw the session as the full length.
+
+`wearer` is who the watch belongs to for this session, so a lost watch can be returned.
+It is the child's first name and surname initial, or the walk-in label, and is left out
+if there is neither. It is the only personal data sent to a watch, and it stays on the
+broker until the session ends.
 
 `extensionPending` is true while a request for more time from the watch is waiting for
 staff. The watch shows that it has asked.
@@ -67,7 +73,7 @@ No session. Publish this rather than clearing the retained message, so a watch c
 { "sessionId": null }
 ```
 
-The server republishes this whenever a session starts, is extended or ends, when a request for more time changes,
+The server republishes this whenever a session starts, is extended or ends, when a request for more time or the wearer changes,
 when a device is registered or removed, and for every device each time it connects to the
 broker. A retained message lets a rebooted watch recover its session.
 

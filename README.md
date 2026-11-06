@@ -97,8 +97,11 @@ For a trusted network only.
 ## Children's data
 
 The dashboard stores children's names, parents' contact details and when each child
-played. Names and contact details stay on the dashboard server and are never sent to
-the watches or the broker.
+played. Contact details and full names stay on the dashboard server.
+
+The watch shows the wearer's first name and surname initial, so a lost watch can be
+returned. That short name crosses the network unencrypted, stays on the broker until the
+session ends, and can be read by anyone who sees the watch.
 
 - The data is in the `dashboard-data` Docker volume, unencrypted, so back it up and
   protect it like any other personal data.

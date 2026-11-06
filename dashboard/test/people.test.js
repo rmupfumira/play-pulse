@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, test } from 'node:test';
-import { Store } from '../src/store.js';
+import { shortName, Store } from '../src/store.js';
 
 const MINUTE = 60_000;
 let clock;
@@ -168,6 +168,24 @@ test('children, parents and usage survive a restart', () => {
   assert.equal(child(id).totalMs, MINUTE);
   assert.equal(child(id).activeDeviceId, 'Tag_2');
   assert.equal(store.people().parents[0].name, 'Parent A');
+});
+
+test('watches get a first name and surname initial, not the full name', () => {
+  assert.equal(shortName('Amy'), 'Amy');
+  assert.equal(shortName('Amy Botha'), 'Amy B');
+  assert.equal(shortName('  Amy  van der Merwe '), 'Amy M');
+});
+
+test('the watch is told who is wearing it, and when that changes', () => {
+  const sent = [];
+  store.on('session', ({ session }) => sent.push(session?.wearer));
+  const { id } = store.addChild({ name: 'Amy Botha' });
+  store.startSession('Tag_1', { durationSeconds: 600, childId: id });
+  store.updateChild(id, { name: 'Amy Smith' });
+  store.assignChild('Tag_1', { childId: null });
+  store.rename('Tag_1', { label: 'Walk-in 4' });
+  store.endSession('Tag_1');
+  assert.deepEqual(sent, ['Amy B', 'Amy S', '', 'Walk-in 4', undefined]);
 });
 
 test('a data file from before profiles still loads', () => {

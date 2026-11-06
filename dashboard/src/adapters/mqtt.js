@@ -27,6 +27,7 @@ function sessionPayload(session) {
     warningMs: session.warningMs,
     durationMs: session.durationMs,
     extensionPending: Boolean(session.extensionRequest),
+    ...(session.wearer ? { wearer: session.wearer } : {}),
   };
 }
 

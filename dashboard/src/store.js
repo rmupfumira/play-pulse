@@ -1,5 +1,5 @@
 // Owns wristbands, sessions, children, parents and usage history, and persists them
-// to a JSON file. Names and contact details stay here: they are never sent to watches.
+// to a JSON file. Contact details stay here. Watches only get a shortened name.
 //
 // The server is the authority on session time: a session is stored as absolute
 // wall-clock timestamps and its state is derived on read. Nothing here assumes
@@ -102,6 +102,14 @@ function cleanEmail(value) {
     throw new StoreError(400, 'invalid_email', 'Enter a valid email address.');
   }
   return email;
+}
+
+// First name and surname initial: enough to return a lost watch, and less for a
+// stranger to read off a child's wrist.
+export function shortName(name) {
+  const words = name.trim().split(/\s+/);
+  const initial = words.length > 1 ? ` ${words.at(-1)[0].toUpperCase()}` : '';
+  return `${words[0]}${initial}`;
 }
 
 function durationMs(seconds) {
@@ -210,12 +218,19 @@ export class Store extends EventEmitter {
   #sessionChanged(device) {
     device.sessionChangedAt = this.now();
     this.#commit();
-    this.emit('session', { deviceId: device.id, session: device.session });
+    this.emit('session', { deviceId: device.id, session: this.#forWatch(device) });
+  }
+
+  // What the feed sends: the session, plus who is wearing the tag.
+  #forWatch(device) {
+    if (!device.session) return null;
+    const child = this.#children.get(device.session.childId);
+    return { ...device.session, wearer: child ? shortName(child.name) : device.label };
   }
 
   // Current session per device, for an adapter republishing after it connects.
   sessions() {
-    return [...this.#devices.values()].map((device) => ({ deviceId: device.id, session: device.session }));
+    return [...this.#devices.values()].map((device) => ({ deviceId: device.id, session: this.#forWatch(device) }));
   }
 
   #device(id) {
@@ -299,7 +314,8 @@ export class Store extends EventEmitter {
   rename(id, { label } = {}) {
     const device = this.#device(id);
     device.label = cleanLabel(label);
-    this.#commit();
+    if (device.session) this.#sessionChanged(device);
+    else this.#commit();
     return device;
   }
 
@@ -358,8 +374,7 @@ export class Store extends EventEmitter {
     return device;
   }
 
-  // Corrects who is wearing a tag during a session. The watch is not told, because
-  // nothing it shows depends on the child.
+  // Corrects who is wearing a tag during a session.
   assignChild(id, { childId = null } = {}) {
     const device = this.#openSession(id);
     if (childId !== null) {
@@ -367,7 +382,7 @@ export class Store extends EventEmitter {
       this.#requireFree(childId, id);
     }
     device.session.childId = childId;
-    this.#commit();
+    this.#sessionChanged(device);
     return device;
   }
 
@@ -421,7 +436,9 @@ export class Store extends EventEmitter {
   updateChild(id, { name, parentIds } = {}) {
     const child = this.#child(id);
     Object.assign(child, { name: cleanName(name), parentIds: this.#parentIds(parentIds) });
-    this.#commit();
+    const device = this.#deviceWithChild(id);
+    if (device) this.#sessionChanged(device);
+    else this.#commit();
     return child;
   }
 
