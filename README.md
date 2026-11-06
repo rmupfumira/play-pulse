@@ -68,12 +68,10 @@ firewall.
 
 ### Update
 
-```bash
-git pull
-```
+This pulls the latest code, rebuilds the dashboard and restarts it. Your data is kept:
 
 ```bash
-docker compose up -d --build
+./deploy.sh
 ```
 
 ### Check on it
