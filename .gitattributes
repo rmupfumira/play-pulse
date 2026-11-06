@@ -1,0 +1,2 @@
+# Config files are mounted into Linux containers, so keep LF on every checkout.
+* text=auto eol=lf

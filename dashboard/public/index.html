@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PlayPulse Wristbands</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="banners">
+    <div id="lost-banner" class="banner banner-lost" role="alert" hidden>
+      <strong>Connection to the dashboard lost.</strong>
+      Times on this page are out of date until it reconnects.
+    </div>
+    <div id="feed-banner" class="banner banner-sim" hidden>
+      <strong id="feed-title">Simulated data</strong>
+      <span id="feed-detail"></span>
+    </div>
+  </div>
+
+  <header class="top">
+    <h1>PlayPulse <span>Wristbands</span></h1>
+    <dl class="counts" aria-label="Summary">
+      <div><dt>Active</dt><dd id="count-green">0</dd></div>
+      <div><dt>Ending soon</dt><dd id="count-yellow">0</dd></div>
+      <div><dt>Expired</dt><dd id="count-red">0</dd></div>
+      <div><dt>Offline</dt><dd id="count-offline">0</dd></div>
+      <div id="mismatch-count" hidden><dt>Mismatch</dt><dd id="count-mismatch">0</dd></div>
+    </dl>
+    <button class="btn btn-primary" data-action="register">Register wristband</button>
+  </header>
+
+  <main id="main">
+    <section aria-labelledby="attention-heading">
+      <h2 id="attention-heading">Needs attention</h2>
+      <p id="attention-empty" class="quiet">No wristbands are expired or ending soon.</p>
+      <div id="attention" class="attention"></div>
+    </section>
+
+    <section aria-labelledby="all-heading">
+      <h2 id="all-heading">All wristbands</h2>
+      <p id="devices-empty" class="quiet" hidden>No wristbands are registered yet.</p>
+      <table id="devices-table">
+        <thead>
+          <tr>
+            <th scope="col">Wristband</th>
+            <th scope="col">State</th>
+            <th scope="col">Time remaining</th>
+            <th scope="col">Last seen</th>
+            <th scope="col">Status</th>
+            <th scope="col"><span class="sr-only">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody id="devices"></tbody>
+      </table>
+    </section>
+
+    <section id="nearby-section" aria-labelledby="nearby-heading" hidden>
+      <h2 id="nearby-heading">Detected, not registered</h2>
+      <ul id="nearby" class="nearby"></ul>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <template id="device-row">
+    <tr>
+      <td data-label="Wristband">
+        <span class="name" data-f="label"></span>
+        <span class="id" data-f="id"></span>
+      </td>
+      <td data-label="State">
+        <span class="pill" data-f="state"></span>
+        <span class="note" data-f="restart" hidden></span>
+      </td>
+      <td data-label="Time remaining" class="time" data-f="time"></td>
+      <td data-label="Last seen" data-f="seen"></td>
+      <td data-label="Status">
+        <span class="link" data-f="link"></span>
+        <span class="note" data-f="watch" hidden></span>
+      </td>
+      <td class="actions">
+        <button class="btn btn-small btn-primary" data-action="start">Start</button>
+        <button class="btn btn-small" data-action="extend">Extend</button>
+        <button class="btn btn-small" data-action="end">End</button>
+        <button class="btn btn-small btn-quiet" data-action="rename">Rename</button>
+        <button class="btn btn-small btn-quiet" data-action="remove">Remove</button>
+      </td>
+    </tr>
+  </template>
+
+  <template id="attention-card">
+    <article class="card">
+      <div class="card-head">
+        <span class="card-state" data-f="state"></span>
+        <span class="card-offline" data-f="offline" hidden>Offline</span>
+      </div>
+      <p class="card-name" data-f="label"></p>
+      <p class="id" data-f="id"></p>
+      <p class="card-time" data-f="time"></p>
+      <p class="card-note" data-f="watch" hidden></p>
+      <p class="card-note" data-f="restart" hidden></p>
+      <div class="card-actions">
+        <button class="btn" data-action="extend">Extend</button>
+        <button class="btn" data-action="end">End session</button>
+      </div>
+    </article>
+  </template>
+
+  <template id="nearby-item">
+    <li>
+      <span class="id" data-f="id"></span>
+      <span class="quiet" data-f="seen"></span>
+      <button class="btn btn-small" data-action="register-nearby">Register</button>
+    </li>
+  </template>
+
+  <dialog id="device-dialog">
+    <form method="dialog">
+      <h2 data-f="title"></h2>
+      <label>Wristband ID
+        <input name="id" required maxlength="32" pattern="[A-Za-z0-9_\-]+" placeholder="PlayPark_Tag_09" autocomplete="off">
+      </label>
+      <label>Visitor or child label
+        <input name="label" maxlength="40" placeholder="Optional" autocomplete="off">
+      </label>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary" data-f="submit"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="session-dialog">
+    <form method="dialog">
+      <h2 data-f="title"></h2>
+      <p class="id" data-f="device"></p>
+      <label data-f="label-field">Visitor or child label
+        <input name="label" maxlength="40" placeholder="Optional" autocomplete="off">
+      </label>
+      <fieldset>
+        <legend>Duration</legend>
+        <div class="presets" data-f="presets"></div>
+        <label class="custom">Custom minutes
+          <input name="minutes" type="number" min="0.5" max="720" step="0.5" inputmode="decimal">
+        </label>
+      </fieldset>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary" data-f="submit"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <h2 data-f="title"></h2>
+      <p data-f="body"></p>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn btn-danger" data-f="submit"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

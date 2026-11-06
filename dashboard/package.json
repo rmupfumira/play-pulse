@@ -1,0 +1,19 @@
+{
+  "name": "playpulse-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local staff dashboard for PlayPulse wristbands",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "start:mqtt": "node --env-file=../broker/.env server.js",
+    "verify:mqtt": "node --env-file=../broker/.env tools/verify-mqtt.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "mqtt": "5.16.1"
+  }
+}

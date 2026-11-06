@@ -1,0 +1,28 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    container_name: playpulse-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    environment:
+      MQTT_USERNAME: ${MQTT_USERNAME:?Set MQTT_USERNAME in broker/.env}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?Set MQTT_PASSWORD in broker/.env}
+    # The password file is rebuilt from .env on every start, so .env stays the
+    # one place the password is set.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        touch /mosquitto/data/passwd
+        chmod 0700 /mosquitto/data/passwd
+        mosquitto_passwd -b /mosquitto/data/passwd "$$MQTT_USERNAME" "$$MQTT_PASSWORD"
+        chown mosquitto:mosquitto /mosquitto/data/passwd
+        unset MQTT_PASSWORD
+        exec mosquitto -c /mosquitto/config/mosquitto.conf
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+
+volumes:
+  mosquitto-data:
