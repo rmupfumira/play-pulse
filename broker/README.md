@@ -4,13 +4,13 @@ Mosquitto in Docker, carrying the topics in
 [`docs/mqtt-contract.md`](../docs/mqtt-contract.md). It requires a username and
 password and publishes port 1883 on the LAN so watches can reach it over Wi-Fi.
 
-On a server this runs with the dashboard, from the
-[project README](../README.md). The steps here run the broker alone.
+This is for development. A deployment uses an existing broker. See the
+[project README](../README.md).
 
 ## Set the password
 
 Credentials live in `broker/.env`, which must stay out of version control. Create
-it once and generate the passwords:
+it once and generate a password:
 
 ```bash
 cd broker
@@ -22,10 +22,6 @@ cp .env.example .env
 
 ```bash
 sed -i "s/^MQTT_PASSWORD=.*/MQTT_PASSWORD=$(openssl rand -hex 16)/" .env
-```
-
-```bash
-sed -i "s/^DASHBOARD_PASSWORD=.*/DASHBOARD_PASSWORD=$(openssl rand -hex 16)/" .env
 ```
 
 To change the password, edit `MQTT_PASSWORD` in `.env` and recreate the container.

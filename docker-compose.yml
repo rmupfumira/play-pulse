@@ -1,19 +1,15 @@
-# The whole server: broker and dashboard. Settings come from broker/.env.
-include:
-  - broker/docker-compose.yml
-
+# The dashboard, connecting to an existing MQTT broker. Settings come from .env.
 services:
   dashboard:
     build: ./dashboard
     container_name: playpulse-dashboard
     restart: unless-stopped
-    depends_on:
-      - mosquitto
-    env_file: broker/.env
-    # These replace the same names in broker/.env, which are for running outside Docker.
     environment:
       ADAPTER: mqtt
-      MQTT_URL: mqtt://mosquitto:1883
+      MQTT_URL: ${MQTT_URL:?Set MQTT_URL in .env}
+      MQTT_USERNAME: ${MQTT_USERNAME:?Set MQTT_USERNAME in .env}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?Set MQTT_PASSWORD in .env}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?Set DASHBOARD_PASSWORD in .env}
       HOST: 0.0.0.0
       PORT: 4311
       PLAYPULSE_DATA: /data/playpulse.json

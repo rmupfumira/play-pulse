@@ -4,12 +4,13 @@ Time tracking for a play park. Each visitor wears a wristband that counts down
 their session. Staff register wristbands and run sessions from a web dashboard.
 
 - [`dashboard/`](dashboard/README.md): the staff web page and API
-- [`broker/`](broker/README.md): the Mosquitto MQTT broker the watches connect to
+- [`broker/`](broker/README.md): a local Mosquitto broker for development
 - [`docs/mqtt-contract.md`](docs/mqtt-contract.md): what the watches and server send each other
 
 ## Deploy on a server
 
-The server needs Docker with Compose. Run these once:
+The server needs Docker with Compose, and an MQTT broker it can reach. See
+[Broker requirements](#broker-requirements). Run these once:
 
 ```bash
 git clone https://github.com/rmupfumira/play-pulse.git
@@ -20,15 +21,14 @@ cd play-pulse
 ```
 
 ```bash
-cp broker/.env.example broker/.env
+cp .env.example .env
 ```
 
-```bash
-sed -i "s/^MQTT_PASSWORD=.*/MQTT_PASSWORD=$(openssl rand -hex 16)/" broker/.env
-```
+Edit `.env` and set the broker address, the broker login and a dashboard password.
+This generates a password you can use:
 
 ```bash
-sed -i "s/^DASHBOARD_PASSWORD=.*/DASHBOARD_PASSWORD=$(openssl rand -hex 16)/" broker/.env
+openssl rand -hex 16
 ```
 
 Start it:
@@ -38,26 +38,33 @@ docker compose up -d --build
 ```
 
 The dashboard is at `http://<server-address>:4311`. The browser asks for a login:
-any username, and `DASHBOARD_PASSWORD` from `broker/.env`. To read it:
+any username, and `DASHBOARD_PASSWORD` from `.env`. A banner on the page says if it
+cannot reach the broker.
 
-```bash
-grep DASHBOARD_PASSWORD broker/.env
-```
+The container restarts with Docker. Registered wristbands and sessions are kept in a
+Docker volume, so they survive restarts and updates.
 
-Both containers restart with Docker. Registered wristbands and sessions are kept in
-Docker volumes, so they survive restarts and updates.
+### Broker requirements
+
+- **Login:** an account that can publish and subscribe under `playpulse/v1/#`. If the
+  broker uses an ACL file, add that topic for the account.
+- **Persistence:** set `persistence true`, so retained sessions survive a broker
+  restart and a rebooted watch can recover its session.
+- **Reachable:** the watches and this server both need to reach it, on port 1883 by
+  default.
+- **One dashboard:** run only one PlayPulse dashboard against a broker at a time.
 
 ### Point the watches at it
 
-Each watch needs the server's address and the broker login in `wristband/secrets.h`,
-then a reflash:
+Each watch needs the broker's address and login in `wristband/secrets.h`, then a
+reflash:
 
-- `MQTT_URI`: `mqtt://<server-address>:1883`
-- `MQTT_USERNAME` and `MQTT_PASSWORD`: the same values as `broker/.env`
+- `MQTT_URI`: `mqtt://<broker-address>:1883`
+- `MQTT_USERNAME` and `MQTT_PASSWORD`: a broker account
 
-Give the server a fixed address, with a DHCP reservation for example, or the
-watches lose it when the address changes. Open TCP 1883 and 4311 if the server runs
-a firewall.
+Give the broker a fixed address, with a DHCP reservation for example, or the watches
+lose it when the address changes. Open TCP 4311 if the dashboard's server runs a
+firewall.
 
 ### Update
 
@@ -79,8 +86,7 @@ docker compose ps
 docker compose logs -f
 ```
 
-If `playpulse-dashboard` keeps restarting, check that `DASHBOARD_PASSWORD` is set in
-`broker/.env`. It refuses to start on the network without one.
+If `docker compose` says a variable is missing, set it in `.env`.
 
 ## Security
 
