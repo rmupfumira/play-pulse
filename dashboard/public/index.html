@@ -65,6 +65,9 @@
       <button class="tile" data-filter="offline" aria-pressed="false">
         <span class="tile-count" id="count-offline">0</span><span class="tile-name">Offline</span>
       </button>
+      <button class="tile" id="battery-tile" data-filter="battery" aria-pressed="false" hidden>
+        <span class="tile-count" id="count-battery">0</span><span class="tile-name">Low battery</span>
+      </button>
       <button class="tile" id="request-tile" data-filter="request" aria-pressed="false" hidden>
         <span class="tile-count" id="count-request">0</span><span class="tile-name">Asking for time</span>
       </button>
@@ -131,6 +134,7 @@
         <p class="band-id" data-f="id"></p>
         <p class="band-meta"><span class="state" data-f="state"></span></p>
         <p class="band-meta"><span class="link" data-f="link"></span></p>
+        <p class="band-meta"><span class="battery" data-f="battery" hidden></span></p>
       </div>
       <button class="icon-btn band-more" data-action="more" aria-label="More options">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>

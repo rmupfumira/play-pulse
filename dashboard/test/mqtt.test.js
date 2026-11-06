@@ -172,6 +172,23 @@ test('telemetry sets last seen and RSSI and is kept as a report only', () => {
   assert.equal(after.report.verdict, 'session');
 });
 
+test('telemetry keeps the last battery level, and ignores a bad one', () => {
+  const { store, client, device } = setupWithStore();
+  store.register({ id: 'tag' });
+  const topic = 'playpulse/v1/devices/tag/telemetry';
+  const body = { state: 'idle', remainingMs: 0, sessionId: null };
+
+  client.receive(topic, body);
+  assert.equal(device('tag').battery, null);
+
+  client.receive(topic, { ...body, battery: 80, charging: true });
+  assert.deepEqual(device('tag').battery, { percent: 80, charging: true });
+
+  client.receive(topic, body);
+  client.receive(topic, { ...body, battery: 101 });
+  assert.deepEqual(device('tag').battery, { percent: 80, charging: true });
+});
+
 test('invalid, malformed and retained telemetry are ignored', () => {
   const { store, client, device } = setupWithStore();
   store.register({ id: 'tag' });

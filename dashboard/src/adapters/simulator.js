@@ -79,6 +79,8 @@ export class SimulatorAdapter extends EventEmitter {
 
     const drift = (this.rng() - 0.5) * 6;
     beacon.rssi = Math.min(RSSI_MAX, Math.max(RSSI_MIN, beacon.rssi + drift));
-    this.emit('sighting', { deviceId: id, at: now, rssi: Math.round(beacon.rssi) });
+    // A made-up spread of levels, so the dashboard shows some low ones.
+    const battery = { percent: (Number(id.slice(-1)) * 13) % 100, charging: false };
+    this.emit('sighting', { deviceId: id, at: now, rssi: Math.round(beacon.rssi), battery });
   }
 }

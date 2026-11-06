@@ -106,11 +106,13 @@ the last 15 s. A retained status does not count as heard.
 ### `.../telemetry`
 
 ```json
-{ "state": "green", "remainingMs": 18000, "sessionId": "abc123", "rssi": -58, "uptimeMs": 90500 }
+{ "state": "green", "remainingMs": 18000, "sessionId": "abc123", "rssi": -58, "uptimeMs": 90500, "battery": 80, "charging": false }
 ```
 
 `state` is `idle`, `green`, `yellow` or `red`. `remainingMs` is 0 for `idle` and `red`.
-`sessionId` is `null` when idle. `rssi` is Wi-Fi signal strength in dBm.
+`sessionId` is `null` when idle. `rssi` is Wi-Fi signal strength in dBm. `battery` is the
+charge from 0 to 100, and `charging` says if it is charging. Both are left out when the
+watch can't read its battery.
 
 The watch works out its state from the server's end time, using `warningMs`:
 

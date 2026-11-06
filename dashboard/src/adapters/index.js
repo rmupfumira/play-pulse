@@ -7,7 +7,7 @@
 //   publishSession(deviceId, session)  tell the wristband its session, or null
 //                                      for none. A no-op if canCommandDevices is false.
 // and emits:
-//   'sighting' { deviceId, at, rssi?, report? }  a wristband was heard; `at` is
+//   'sighting' { deviceId, at, rssi?, report?, battery? }  a wristband was heard; `at` is
 //                                      epoch ms, and `report` is what the watch
 //                                      says it shows: { state, remainingMs, sessionId }
 //   'presence' { deviceId, online, firmware?, live }  connection status; `live`

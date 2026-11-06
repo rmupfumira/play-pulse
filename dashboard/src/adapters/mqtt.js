@@ -31,6 +31,11 @@ function sessionPayload(session) {
   };
 }
 
+function batteryFrom({ battery, charging }) {
+  if (!Number.isInteger(battery) || battery < 0 || battery > 100) return undefined;
+  return { percent: battery, charging: charging === true };
+}
+
 function validTelemetry(body) {
   return WATCH_STATES.has(body.state)
     && Number.isFinite(body.remainingMs)
@@ -158,6 +163,7 @@ export class MqttAdapter extends EventEmitter {
       at: this.now(),
       rssi: Number.isFinite(rssi) ? rssi : undefined,
       report: { state, remainingMs, sessionId },
+      battery: batteryFrom(body),
     });
   }
 

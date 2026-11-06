@@ -3,6 +3,7 @@
 // update carries the current remaining time.
 const STALE_AFTER_MS = 4000;
 const TOAST_MS = 4000;
+const LOW_BATTERY_PERCENT = 20;
 const STATE_TEXT = { idle: 'No session', green: 'Active', yellow: 'Ending soon', red: 'Time up' };
 const STATE_ORDER = { red: 0, yellow: 1, green: 2, idle: 3 };
 const FILTERS = {
@@ -12,6 +13,7 @@ const FILTERS = {
   offline: (item) => !item.online,
   mismatch: (item) => isMismatch(item),
   request: (item) => hasRequest(item),
+  battery: (item) => isLowBattery(item),
 };
 const START_PRESETS = [
   { seconds: 30, text: '30 sec' },
@@ -111,6 +113,12 @@ function timeOfDay(at) {
 
 const hasRequest = (item) => Boolean(item.session?.extensionRequest);
 
+// A watch that has gone quiet shows as offline, so its old level isn't shown.
+const showsBattery = (item) => item.online && item.battery !== null;
+const isLowBattery = (item) => showsBattery(item)
+  && !item.battery.charging
+  && item.battery.percent <= LOW_BATTERY_PERCENT;
+
 // What the watch says it is showing, and whether that agrees with the server.
 function watchNote(item) {
   const report = item.report;
@@ -182,6 +190,13 @@ function updateCard(card, item) {
   link.title = [item.firmware && `Firmware ${item.firmware}`, item.rssi !== null && `${item.rssi} dBm`]
     .filter(Boolean).join(', ');
 
+  const battery = field(card, 'battery');
+  battery.hidden = !showsBattery(item);
+  battery.dataset.low = isLowBattery(item);
+  if (showsBattery(item)) {
+    battery.textContent = `Battery ${item.battery.percent}%${item.battery.charging ? ', charging' : ''}`;
+  }
+
   field(card, 'request').hidden = !hasRequest(item);
   card.toggleAttribute('data-request', hasRequest(item));
   // Only a problem is worth a line on the card.
@@ -230,7 +245,8 @@ function render() {
   for (const name of Object.keys(FILTERS)) el(`count-${name}`).textContent = count(name);
   el('mismatch-tile').hidden = count('mismatch') === 0;
   el('request-tile').hidden = count('request') === 0;
-  if (['mismatch', 'request'].includes(filter) && count(filter) === 0) setFilter(null);
+  el('battery-tile').hidden = count('battery') === 0;
+  if (['mismatch', 'request', 'battery'].includes(filter) && count(filter) === 0) setFilter(null);
   announceRequests(devices);
   const waiting = expired + ending + count('request');
   document.title = waiting > 0 ? `(${waiting}) PlayPulse` : 'PlayPulse';

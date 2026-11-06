@@ -229,6 +229,8 @@ main.stale { opacity: .45; }
 .state[data-state="yellow"] { color: var(--amber); }
 .state[data-state="red"] { color: var(--red); }
 
+.battery { color: var(--muted); }
+.battery[data-low="true"] { color: var(--amber); }
 .link { color: var(--muted); }
 .link::before {
   content: "";

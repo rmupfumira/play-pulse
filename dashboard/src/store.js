@@ -169,6 +169,7 @@ export class Store extends EventEmitter {
       }
       device.sessionChangedAt ??= 0;
       device.report ??= null;
+      device.battery ??= null;
       this.#devices.set(device.id, device);
     }
     return false;
@@ -307,6 +308,7 @@ export class Store extends EventEmitter {
       firmware: presence?.firmware ?? null,
       reportedOffline: presence ? !presence.online : false,
       report: null,
+      battery: null,
     };
     this.#devices.set(id, device);
     this.#nearby.delete(id);
@@ -558,8 +560,9 @@ export class Store extends EventEmitter {
 
   // Input from the feed adapter. Timestamps only move forward, because a broker
   // can redeliver old messages and that must not make a wristband look older.
-  // `rssi` and `report` are optional; a sighting without them keeps the last values.
-  recordSighting({ deviceId, at, rssi, report } = {}) {
+  // `rssi`, `report` and `battery` are optional; a sighting without them keeps the
+  // last values.
+  recordSighting({ deviceId, at, rssi, report, battery } = {}) {
     if (typeof deviceId !== 'string' || !ID_PATTERN.test(deviceId)) return;
     const now = this.now();
     const seenAt = Number.isFinite(at) ? Math.min(at, now) : now;
@@ -570,6 +573,7 @@ export class Store extends EventEmitter {
         target.rssi = rssi ?? target.rssi;
         target.reportedOffline = false;
         if (report) target.report = { ...report, at: seenAt };
+        target.battery = battery ?? target.battery;
         this.#dirty = true;
       }
       return;
