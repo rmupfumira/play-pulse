@@ -73,7 +73,10 @@ No session. Publish this rather than clearing the retained message, so a watch c
 { "sessionId": null }
 ```
 
-The server republishes this whenever a session starts, is extended or ends, when a request for more time or the wearer changes,
+Pausing a session looks the same to a watch as ending it. The time left is saved on the
+child's profile on the server, and using it later is a new session with a new `sessionId`.
+
+The server republishes this whenever a session starts, is extended, is paused or ends, when a request for more time or the wearer changes,
 when a device is registered or removed, and for every device each time it connects to the
 broker. A retained message lets a rebooted watch recover its session.
 

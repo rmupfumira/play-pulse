@@ -190,6 +190,7 @@ function updateCard(card, item) {
   const hasSession = item.state !== 'idle';
   card.querySelector('[data-action="start"]').hidden = hasSession;
   card.querySelector('[data-action="extend"]').hidden = !hasSession;
+  card.querySelector('[data-action="pause"]').hidden = !hasSession || item.state === 'red';
   card.querySelector('[data-action="end"]').hidden = !hasSession;
 }
 
@@ -277,8 +278,8 @@ function renderPeople() {
       ? `${spanText(child.totalMs)} over ${child.visits} session${child.visits === 1 ? '' : 's'}`
       : 'No sessions yet';
     const live = field(card, 'live');
-    live.hidden = !child.activeDeviceId;
-    live.textContent = 'Playing';
+    live.hidden = !child.activeDeviceId && !child.creditMs;
+    live.textContent = child.activeDeviceId ? 'Playing' : `${spanText(child.creditMs)} saved`;
   });
   el('children-empty').hidden = people.children.length > 0;
 
@@ -571,7 +572,8 @@ function usageItem(row) {
   field(item, 'date').textContent = dateText(row.startedAt);
   field(item, 'tag').textContent = `${timeOfDay(row.startedAt)} on ${row.deviceId}`;
   field(item, 'used').textContent = spanText(row.endedAt - row.startedAt);
-  field(item, 'allocated').textContent = `of ${spanText(row.allocatedMs)}`;
+  const saved = row.savedMs ? `, ${spanText(row.savedMs)} saved` : '';
+  field(item, 'allocated').textContent = `of ${spanText(row.allocatedMs)}${saved}`;
   return item;
 }
 
@@ -584,6 +586,7 @@ async function openProfile(id) {
   field(dialog, 'live').textContent = child.activeDeviceId ? `Playing now on ${child.activeDeviceId}` : 'Not playing now';
   field(dialog, 'total').textContent = spanText(child.totalMs);
   field(dialog, 'visits').textContent = child.visits;
+  field(dialog, 'credit').textContent = spanText(child.creditMs);
   field(dialog, 'parents').replaceChildren(...child.parents.map(contactItem));
   field(dialog, 'usage').replaceChildren(...child.usage.map(usageItem));
   field(dialog, 'usage-empty').hidden = child.usage.length > 0;
@@ -595,7 +598,7 @@ async function openProfile(id) {
     dialog.close();
     openConfirm({
       title: 'Delete child and history?',
-      body: `${child.name} and all their usage history will be deleted. This cannot be undone.`,
+      body: `${child.name}, all their usage history and any saved time will be deleted. This cannot be undone.`,
       submit: 'Delete',
       action: async () => {
         await api('DELETE', `/api/children/${child.id}`);
@@ -606,6 +609,16 @@ async function openProfile(id) {
   dialog.showModal();
 }
 
+// A returning child's saved time is what they most likely came to use.
+function startPresets(childId) {
+  const credit = people.children.find((child) => child.id === childId)?.creditMs;
+  if (!credit) return START_PRESETS;
+  return [
+    { seconds: 'credit', text: `Saved ${spanText(credit)}`, preselected: true },
+    ...START_PRESETS.map((preset) => ({ ...preset, preselected: false })),
+  ];
+}
+
 function openStart(item) {
   openSessionDialog(item, {
     title: 'Start session',
@@ -614,7 +627,9 @@ function openStart(item) {
     showLabel: true,
     action: async (data) => {
       const childId = data.get('childId') || null;
-      const body = { durationSeconds: chosenSeconds(data), label: data.get('label'), childId };
+      const body = data.get('preset') === 'credit'
+        ? { useCredit: true, label: data.get('label'), childId }
+        : { durationSeconds: chosenSeconds(data), label: data.get('label'), childId };
       await api('POST', `${devicePath(item.id)}/session`, body);
       return `Session started on ${item.id}.`;
     },
@@ -676,6 +691,22 @@ async function endSession(item) {
   return `Session ended on ${item.id}.`;
 }
 
+function askPause(item) {
+  if (!item.child) {
+    toast('Assign a child first, so the time has someone to be saved for.');
+    return;
+  }
+  openConfirm({
+    title: 'Pause session?',
+    body: `${clock(item.remainingMs)} will be saved for ${item.child.name}, to use on any wristband. This one will be free.`,
+    submit: 'Pause session',
+    action: async () => {
+      await api('POST', `${devicePath(item.id)}/session/pause`);
+      return `Time saved for ${item.child.name}.`;
+    },
+  });
+}
+
 function askEnd(item) {
   // Ending an expired session is routine; ending one with time left loses that time.
   if (item.state === 'red') {
@@ -684,7 +715,7 @@ function askEnd(item) {
   }
   openConfirm({
     title: 'End session early?',
-    body: `${displayName(item)} (${item.id}) still has ${clock(item.remainingMs)} left. This cannot be undone.`,
+    body: `${displayName(item)} (${item.id}) still has ${clock(item.remainingMs)} left, which will be lost. Pause keeps it for a child with a profile.`,
     submit: 'End session',
     action: () => endSession(item),
   });
@@ -708,6 +739,7 @@ const actions = {
   'register-nearby': (_item, id) => openRegister(id),
   start: openStart,
   extend: openExtend,
+  pause: askPause,
   end: askEnd,
   more: openMore,
   approve: openApprove,
@@ -771,7 +803,10 @@ for (const dialog of document.querySelectorAll('dialog')) {
 }
 el('session-dialog').addEventListener('change', (event) => {
   if (event.target.name === 'preset') syncCustomField(el('session-dialog'));
-  if (event.target.name === 'childId') syncLabelField(el('session-dialog'));
+  if (event.target.name === 'childId') {
+    syncLabelField(el('session-dialog'));
+    setPresets(el('session-dialog'), startPresets(event.target.value));
+  }
 });
 el('child-search').addEventListener('input', renderPeople);
 el('parent-search').addEventListener('input', renderPeople);

@@ -77,6 +77,7 @@ export function createApp({ store, adapter, publicDir, logins }) {
     }],
     ['POST', /^\/api\/devices\/([^/]+)\/session$/, (id, body) => [201, store.startSession(id, body)]],
     ['POST', /^\/api\/devices\/([^/]+)\/session\/extend$/, (id, body) => [200, store.extendSession(id, body)]],
+    ['POST', /^\/api\/devices\/([^/]+)\/session\/pause$/, (id) => [200, store.pauseSession(id)]],
     ['POST', /^\/api\/devices\/([^/]+)\/session\/end$/, (id) => [200, store.endSession(id)]],
     ['POST', /^\/api\/devices\/([^/]+)\/extension\/approve$/, (id, body) => [200, store.approveExtension(id, body)]],
     ['POST', /^\/api\/devices\/([^/]+)\/extension\/decline$/, (id) => [200, store.declineExtension(id)]],

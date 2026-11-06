@@ -154,7 +154,10 @@ export class Store extends EventEmitter {
     if (!READABLE_VERSIONS.includes(data.version) || !Array.isArray(data.devices)) {
       throw new Error(`${this.file} is not a PlayPulse data file this version can read.`);
     }
-    for (const child of data.children ?? []) this.#children.set(child.id, child);
+    for (const child of data.children ?? []) {
+      child.creditMs ??= 0; // Files saved before sessions could be paused.
+      this.#children.set(child.id, child);
+    }
     for (const parent of data.parents ?? []) this.#parents.set(parent.id, parent);
     this.#usage = data.usage ?? [];
     for (const device of data.devices) {
@@ -264,7 +267,7 @@ export class Store extends EventEmitter {
   }
 
   // Usage belongs to the child, so it follows them whichever tag they wear.
-  #recordUsage(device) {
+  #recordUsage(device, savedMs = 0) {
     const { session } = device;
     if (!session?.childId) return;
     this.#usage.push({
@@ -274,6 +277,7 @@ export class Store extends EventEmitter {
       startedAt: session.startedAt,
       endedAt: this.now(),
       allocatedMs: session.durationMs,
+      savedMs,
     });
   }
 
@@ -330,14 +334,17 @@ export class Store extends EventEmitter {
     this.emit('session', { deviceId: id, session: null });
   }
 
-  startSession(id, { durationSeconds, label, childId = null } = {}) {
+  // With useCredit the session runs for the child's saved time, all of it.
+  startSession(id, { durationSeconds, label, childId = null, useCredit = false } = {}) {
     const device = this.#device(id);
     if (device.session) throw new StoreError(409, 'session_open', `${id} already has a session.`);
-    const duration = durationMs(durationSeconds);
-    if (childId !== null) {
-      this.#child(childId);
-      this.#requireFree(childId);
+    const child = childId === null ? null : this.#child(childId);
+    if (child) this.#requireFree(childId);
+    if (useCredit && !child?.creditMs) {
+      throw new StoreError(409, 'no_credit', 'There is no saved time to use.');
     }
+    const duration = useCredit ? child.creditMs : durationMs(durationSeconds);
+    if (useCredit) child.creditMs = 0;
     const startedAt = this.now();
     if (label !== undefined) device.label = cleanLabel(label);
     device.session = {
@@ -369,6 +376,23 @@ export class Store extends EventEmitter {
   endSession(id) {
     const device = this.#openSession(id);
     this.#recordUsage(device);
+    device.session = null;
+    this.#sessionChanged(device);
+    return device;
+  }
+
+  // The child is leaving with time unused. It is saved on their profile rather than
+  // on the tag, so the tag is free for someone else and they can use any tag later.
+  pauseSession(id) {
+    const device = this.#openSession(id);
+    const child = this.#children.get(device.session.childId);
+    if (!child) {
+      throw new StoreError(409, 'no_child', 'Assign a child first, so the time has someone to be saved for.');
+    }
+    const remaining = device.session.endsAt - this.now();
+    if (remaining <= 0) throw new StoreError(409, 'no_time_left', `${id} has no time left to save.`);
+    child.creditMs += remaining;
+    this.#recordUsage(device, remaining);
     device.session = null;
     this.#sessionChanged(device);
     return device;
@@ -426,6 +450,7 @@ export class Store extends EventEmitter {
       id: newSessionId(),
       name: cleanName(name),
       parentIds: this.#parentIds(parentIds),
+      creditMs: 0,
       createdAt: this.now(),
     };
     this.#children.set(child.id, child);

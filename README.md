@@ -99,6 +99,9 @@ For a trusted network only.
 The dashboard stores children's names, parents' contact details and when each child
 played. Contact details and full names stay on the dashboard server.
 
+Pausing a child's session saves the time they have left on their profile, ready to use
+on any wristband. Walk-ins have no profile, so their time cannot be saved.
+
 The watch shows the wearer's first name and surname initial, so a lost watch can be
 returned. That short name crosses the network unencrypted, stays on the broker until the
 session ends, and can be read by anyone who sees the watch.

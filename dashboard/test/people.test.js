@@ -188,6 +188,78 @@ test('the watch is told who is wearing it, and when that changes', () => {
   assert.deepEqual(sent, ['Amy B', 'Amy S', '', 'Walk-in 4', undefined]);
 });
 
+test('pausing saves the time left for the child and frees the tag', () => {
+  const { id } = store.addChild({ name: 'Child A' });
+  store.startSession('Tag_1', { durationSeconds: 3600, childId: id });
+  store.requestExtension('Tag_1', store.snapshot().devices[0].session.id, 'r1');
+  clock.t += 40 * MINUTE;
+
+  store.pauseSession('Tag_1');
+
+  assert.equal(child(id).creditMs, 20 * MINUTE);
+  assert.equal(child(id).activeDeviceId, null);
+  assert.equal(child(id).totalMs, 40 * MINUTE);
+  assert.equal(store.snapshot().devices[0].state, 'idle');
+  const [row] = store.childDetail(id).usage;
+  assert.equal(row.savedMs, 20 * MINUTE);
+  assert.equal(row.allocatedMs, 60 * MINUTE);
+});
+
+test('saved time is used on any tag and can be paused again', () => {
+  const { id } = store.addChild({ name: 'Child A' });
+  store.startSession('Tag_1', { durationSeconds: 3600, childId: id });
+  clock.t += 40 * MINUTE;
+  store.pauseSession('Tag_1');
+  clock.t += 24 * 60 * MINUTE;
+
+  const device = store.startSession('Tag_2', { childId: id, useCredit: true });
+
+  assert.equal(device.session.endsAt, clock.t + 20 * MINUTE);
+  assert.equal(child(id).creditMs, 0);
+
+  clock.t += 5 * MINUTE;
+  store.pauseSession('Tag_2');
+  assert.equal(child(id).creditMs, 15 * MINUTE);
+  assert.equal(child(id).totalMs, 45 * MINUTE);
+});
+
+test('saved time stays when a child starts on newly paid time, and adds up', () => {
+  const { id } = store.addChild({ name: 'Child A' });
+  store.startSession('Tag_1', { durationSeconds: 1800, childId: id });
+  store.pauseSession('Tag_1');
+  store.startSession('Tag_1', { durationSeconds: 600, childId: id });
+  assert.equal(child(id).creditMs, 30 * MINUTE);
+  store.pauseSession('Tag_1');
+  assert.equal(child(id).creditMs, 40 * MINUTE);
+});
+
+test('time cannot be saved for a walk-in or after it has run out', () => {
+  const { id } = store.addChild({ name: 'Child A' });
+  store.startSession('Tag_1', { durationSeconds: 600 });
+  assert.throws(() => store.pauseSession('Tag_1'), { code: 'no_child' });
+
+  store.startSession('Tag_2', { durationSeconds: 600, childId: id });
+  clock.t += 10 * MINUTE;
+  assert.throws(() => store.pauseSession('Tag_2'), { code: 'no_time_left' });
+  assert.equal(child(id).creditMs, 0);
+  assert.notEqual(store.snapshot().devices[1].state, 'idle');
+});
+
+test('saved time cannot be used by a child without any', () => {
+  const { id } = store.addChild({ name: 'Child A' });
+  assert.throws(() => store.startSession('Tag_1', { childId: id, useCredit: true }), { code: 'no_credit' });
+  assert.throws(() => store.startSession('Tag_1', { useCredit: true }), { code: 'no_credit' });
+});
+
+test('saved time survives a restart', () => {
+  const { id } = store.addChild({ name: 'Child A' });
+  store.startSession('Tag_1', { durationSeconds: 600, childId: id });
+  store.pauseSession('Tag_1');
+  store = newStore();
+  store.load();
+  assert.equal(child(id).creditMs, 10 * MINUTE);
+});
+
 test('a data file from before profiles still loads', () => {
   writeFileSync(file, JSON.stringify({ version: 1, devices: [{ id: 'Old', label: '', session: null }] }));
   store = newStore();
