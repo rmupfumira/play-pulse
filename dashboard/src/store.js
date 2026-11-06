@@ -153,8 +153,7 @@ export class Store extends EventEmitter {
       // Files saved before sessions had IDs.
       if (device.session) {
         device.session.id ??= newSessionId();
-        device.session.originalDurationMs ??= device.session.durationMs;
-        device.session.restarts ??= 0;
+        device.session.extensionRequest ??= null;
         device.session.childId ??= null;
       }
       device.sessionChangedAt ??= 0;
@@ -207,7 +206,7 @@ export class Store extends EventEmitter {
     this.emit('change');
   }
 
-  // A staff action or watch restart changed what the watch should be showing.
+  // Something changed what the watch should be showing.
   #sessionChanged(device) {
     device.sessionChangedAt = this.now();
     this.#commit();
@@ -331,10 +330,9 @@ export class Store extends EventEmitter {
       startedAt,
       endsAt: startedAt + duration,
       durationMs: duration,
-      originalDurationMs: duration,
       warningMs: warningFor(duration),
-      restarts: 0,
-      lastRestartAt: null,
+      extensionRequest: null,
+      lastRequestId: null,
     };
     this.#sessionChanged(device);
     return device;
@@ -347,6 +345,7 @@ export class Store extends EventEmitter {
     const extra = durationMs(durationSeconds);
     device.session.endsAt = Math.max(device.session.endsAt, this.now()) + extra;
     device.session.durationMs += extra;
+    device.session.extensionRequest = null;
     this.#sessionChanged(device);
     return device;
   }
@@ -482,26 +481,37 @@ export class Store extends EventEmitter {
     this.#commit();
   }
 
-  // Staff held the watch screen. Only the current session can be restarted: the
-  // new ID makes a redelivered copy of the same event stale, so it cannot restart
-  // the session twice. Extensions are dropped, as the original duration applies.
-  restartFromWatch(id, sessionId) {
+  // The watch screen was held, asking for more time. Anyone can do that, so it only
+  // raises a request for staff. A repeated requestId is a redelivered copy.
+  requestExtension(id, sessionId, requestId = null) {
     const device = this.#devices.get(id);
-    if (!device?.session || device.session.id !== sessionId) return false;
-    const session = device.session;
-    const now = this.now();
-    this.#recordUsage(device);
-    device.session = {
-      ...session,
-      id: newSessionId(),
-      startedAt: now,
-      endsAt: now + session.originalDurationMs,
-      durationMs: session.originalDurationMs,
-      restarts: session.restarts + 1,
-      lastRestartAt: now,
-    };
+    const session = device?.session;
+    if (!session || session.id !== sessionId) return false;
+    if (session.extensionRequest || (requestId !== null && requestId === session.lastRequestId)) return false;
+    session.extensionRequest = { requestedAt: this.now() };
+    session.lastRequestId = requestId;
     this.#sessionChanged(device);
     return true;
+  }
+
+  #requested(id) {
+    const device = this.#openSession(id);
+    if (!device.session.extensionRequest) {
+      throw new StoreError(409, 'no_request', `${id} has no request waiting.`);
+    }
+    return device;
+  }
+
+  approveExtension(id, body) {
+    this.#requested(id);
+    return this.extendSession(id, body);
+  }
+
+  declineExtension(id) {
+    const device = this.#requested(id);
+    device.session.extensionRequest = null;
+    this.#sessionChanged(device);
+    return device;
   }
 
   // Input from the feed adapter. Timestamps only move forward, because a broker

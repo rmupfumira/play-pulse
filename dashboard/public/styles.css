@@ -173,6 +173,7 @@ main.stale { opacity: .45; }
 .tile[data-filter="yellow"] { --tone: var(--amber); }
 .tile[data-filter="red"] { --tone: var(--red); }
 .tile[data-filter="mismatch"] { --tone: var(--red); }
+.tile[data-filter="request"] { --tone: var(--accent); }
 .tile[aria-pressed="true"] { border-color: var(--tone); }
 .tile-count { color: var(--tone); font-size: 30px; font-weight: 600; line-height: 1.1; }
 .tile-name { color: var(--muted); font-size: 14px; }
@@ -240,6 +241,19 @@ main.stale { opacity: .45; }
   vertical-align: 1px;
 }
 .link[data-online="true"]::before { background: var(--green); }
+
+.band[data-request] { border-color: var(--accent); }
+.band-request {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: var(--radius-small);
+  background: var(--raised);
+  font-weight: 600;
+}
+.band-request-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
 .band-note { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
 .band-note[data-alert="true"] { color: var(--red); font-weight: 500; }

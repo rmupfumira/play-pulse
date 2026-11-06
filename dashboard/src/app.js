@@ -78,6 +78,8 @@ export function createApp({ store, adapter, publicDir, logins }) {
     ['POST', /^\/api\/devices\/([^/]+)\/session$/, (id, body) => [201, store.startSession(id, body)]],
     ['POST', /^\/api\/devices\/([^/]+)\/session\/extend$/, (id, body) => [200, store.extendSession(id, body)]],
     ['POST', /^\/api\/devices\/([^/]+)\/session\/end$/, (id) => [200, store.endSession(id)]],
+    ['POST', /^\/api\/devices\/([^/]+)\/extension\/approve$/, (id, body) => [200, store.approveExtension(id, body)]],
+    ['POST', /^\/api\/devices\/([^/]+)\/extension\/decline$/, (id) => [200, store.declineExtension(id)]],
     ['POST', /^\/api\/devices\/([^/]+)\/child$/, (id, body) => [200, store.assignChild(id, body)]],
     ['GET', /^\/api\/people$/, () => [200, store.people()]],
     ['POST', /^\/api\/children$/, (_id, body) => [201, store.addChild(body)]],

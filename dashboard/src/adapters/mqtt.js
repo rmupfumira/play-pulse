@@ -21,7 +21,13 @@ const sessionTopic = (deviceId) => `playpulse/v1/devices/${deviceId}/session`;
 
 function sessionPayload(session) {
   if (!session) return { sessionId: null };
-  return { sessionId: session.id, endsAt: session.endsAt, warningMs: session.warningMs, durationMs: session.durationMs };
+  return {
+    sessionId: session.id,
+    endsAt: session.endsAt,
+    warningMs: session.warningMs,
+    durationMs: session.durationMs,
+    extensionPending: Boolean(session.extensionRequest),
+  };
 }
 
 function validTelemetry(body) {
@@ -156,8 +162,8 @@ export class MqttAdapter extends EventEmitter {
 
   #onEvent(deviceId, body) {
     this.emit('sighting', { deviceId, at: this.now() });
-    if (body.type === 'restart_requested') {
-      this.emit('restartRequested', { deviceId, sessionId: body.sessionId });
+    if (body.type === 'extension_requested') {
+      this.emit('extensionRequested', { deviceId, sessionId: body.sessionId, requestId: body.requestId ?? null });
     }
   }
 

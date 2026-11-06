@@ -73,7 +73,7 @@ export class FakeWatch {
 
   // The 3 second screen hold. Pass an ID to send a stale event.
   holdScreen(sessionId = this.session?.sessionId) {
-    const body = JSON.stringify({ type: 'restart_requested', sessionId });
+    const body = JSON.stringify({ type: 'extension_requested', sessionId, requestId: String(performance.now()) });
     this.#client.publish(`${this.base}/event`, body, { qos: 1 });
   }
 

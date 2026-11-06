@@ -106,8 +106,11 @@ thousands of sessions or needs reporting.
 
 With MQTT, each wristband also shows what the watch reports. A different session,
 a state that doesn't fit, or a countdown more than 3 seconds out is flagged as a
-mismatch. Telemetry never changes a session. A restart from the watch screen shows
-as a notice and on the row, because anyone can hold the screen.
+mismatch. Telemetry never changes a session.
+
+Holding a watch screen for 3 seconds asks for more time and changes nothing by itself,
+because anyone can hold the screen. Staff see the request on that wristband's card,
+then choose how much time to approve, or decline it.
 
 If the broker is unreachable a banner says so, wristbands show offline, and
 sessions keep running. The broker is brought up to date on reconnect.

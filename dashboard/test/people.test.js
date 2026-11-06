@@ -97,16 +97,15 @@ test('assigning needs a running session', () => {
   assert.throws(() => store.assignChild('Tag_1', { childId: id }), { status: 409, code: 'no_session' });
 });
 
-test('a restart from the watch keeps the child and counts the time so far', () => {
+test('more time approved from the watch stays one session for the child', () => {
   const { id } = store.addChild({ name: 'Child A' });
   const { session } = store.startSession('Tag_1', { durationSeconds: 600, childId: id });
-  clock.t += 5 * MINUTE;
-  store.restartFromWatch('Tag_1', session.id);
-  assert.equal(child(id).activeDeviceId, 'Tag_1');
-  clock.t += 2 * MINUTE;
+  store.requestExtension('Tag_1', session.id, 'r1');
+  store.approveExtension('Tag_1', { durationSeconds: 300 });
+  clock.t += 12 * MINUTE;
   store.endSession('Tag_1');
-  assert.equal(child(id).visits, 2);
-  assert.equal(child(id).totalMs, 7 * MINUTE);
+  assert.equal(child(id).visits, 1);
+  assert.equal(store.childDetail(id).usage[0].allocatedMs, 15 * MINUTE);
 });
 
 test('removing a tag with a running session keeps the usage', () => {

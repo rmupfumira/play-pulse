@@ -76,7 +76,7 @@ test('refuses to start without broker credentials', () => {
 });
 
 test('on connect it subscribes and republishes the time and every session', () => {
-  const session = { id: 'abc123', endsAt: 5000, warningMs: 1000, restarts: 0 };
+  const session = { id: 'abc123', endsAt: 5000, warningMs: 1000, extensionRequest: null };
   const { client } = setup({
     sessions: [{ deviceId: 'a', session }, { deviceId: 'b', session: null }],
   });
@@ -91,7 +91,9 @@ test('on connect it subscribes and republishes the time and every session', () =
     body: { now: NOW },
     options: { qos: 0, retain: true },
   }]);
-  assert.deepEqual(client.to(sessionTopic('a'))[0].body, { sessionId: 'abc123', endsAt: 5000, warningMs: 1000 });
+  assert.deepEqual(client.to(sessionTopic('a'))[0].body, {
+    sessionId: 'abc123', endsAt: 5000, warningMs: 1000, extensionPending: false,
+  });
   assert.deepEqual(client.to(sessionTopic('b'))[0].body, { sessionId: null });
 });
 
@@ -118,12 +120,14 @@ test('session changes are published with the contract payload at QoS 1, retained
   const { id } = device('tag').session;
   assert.deepEqual(last('tag'), {
     topic: sessionTopic('tag'),
-    body: { sessionId: id, endsAt: NOW + 30_000, warningMs: 10_000, durationMs: 30_000 },
+    body: { sessionId: id, endsAt: NOW + 30_000, warningMs: 10_000, durationMs: 30_000, extensionPending: false },
     options: { qos: 1, retain: true },
   });
 
   store.extendSession('tag', { durationSeconds: 30 });
-  assert.deepEqual(last('tag').body, { sessionId: id, endsAt: NOW + 60_000, warningMs: 10_000, durationMs: 60_000 });
+  assert.deepEqual(last('tag').body, {
+    sessionId: id, endsAt: NOW + 60_000, warningMs: 10_000, durationMs: 60_000, extensionPending: false,
+  });
 
   store.endSession('tag');
   assert.deepEqual(last('tag').body, { sessionId: null });
@@ -201,27 +205,67 @@ test('status maps to online, with a retained message not counting as seen', () =
   assert.equal(device('tag').lastSeenAt, clock.t);
 });
 
-test('restart_requested restarts the current session and republishes it', () => {
-  const { store, client, device, clock } = setupWithStore();
+test('holding the watch asks staff, adds no time, and tells the watch', () => {
+  const { store, client, device } = setupWithStore();
   store.register({ id: 'tag' });
   store.startSession('tag', { durationSeconds: 30 });
-  store.extendSession('tag', { durationSeconds: 60 });
-  const { id } = device('tag').session;
+  const { id, endsAt } = device('tag').session;
 
-  clock.t += 100_000;
-  client.receive('playpulse/v1/devices/tag/event', { type: 'restart_requested', sessionId: id });
+  client.receive('playpulse/v1/devices/tag/event', { type: 'extension_requested', sessionId: id, requestId: 'r1' });
 
-  const session = device('tag').session;
-  assert.notEqual(session.id, id);
-  assert.equal(session.endsAt, clock.t + 30_000);
-  assert.equal(session.restarts, 1);
-  assert.equal(session.lastRestartAt, clock.t);
-  assert.deepEqual(client.to(sessionTopic('tag')).at(-1).body, {
-    sessionId: session.id, endsAt: clock.t + 30_000, warningMs: 10_000, durationMs: 30_000,
-  });
+  assert.equal(device('tag').session.endsAt, endsAt);
+  assert.ok(device('tag').session.extensionRequest);
+  assert.equal(client.to(sessionTopic('tag')).at(-1).body.extensionPending, true);
 });
 
-test('a stale restart event changes nothing and publishes nothing', () => {
+test('approving adds the time staff chose, on the same session', () => {
+  const { store, client, device } = setupWithStore();
+  store.register({ id: 'tag' });
+  store.startSession('tag', { durationSeconds: 30 });
+  const { id, endsAt } = device('tag').session;
+  client.receive('playpulse/v1/devices/tag/event', { type: 'extension_requested', sessionId: id, requestId: 'r1' });
+
+  store.approveExtension('tag', { durationSeconds: 300 });
+
+  assert.equal(device('tag').session.id, id);
+  assert.equal(device('tag').session.endsAt, endsAt + 300_000);
+  assert.equal(device('tag').session.extensionRequest, null);
+  assert.equal(client.to(sessionTopic('tag')).at(-1).body.extensionPending, false);
+});
+
+test('declining clears the request and adds no time', () => {
+  const { store, client, device } = setupWithStore();
+  store.register({ id: 'tag' });
+  store.startSession('tag', { durationSeconds: 30 });
+  const { id, endsAt } = device('tag').session;
+  client.receive('playpulse/v1/devices/tag/event', { type: 'extension_requested', sessionId: id, requestId: 'r1' });
+
+  store.declineExtension('tag');
+
+  assert.equal(device('tag').session.endsAt, endsAt);
+  assert.equal(client.to(sessionTopic('tag')).at(-1).body.extensionPending, false);
+});
+
+test('approving or declining with no request is refused', () => {
+  const { store } = setupWithStore();
+  store.register({ id: 'tag' });
+  store.startSession('tag', { durationSeconds: 30 });
+  assert.throws(() => store.approveExtension('tag', { durationSeconds: 300 }), { status: 409, code: 'no_request' });
+  assert.throws(() => store.declineExtension('tag'), { status: 409, code: 'no_request' });
+});
+
+test('staff extending a session answers a waiting request', () => {
+  const { store, client, device } = setupWithStore();
+  store.register({ id: 'tag' });
+  store.startSession('tag', { durationSeconds: 30 });
+  client.receive('playpulse/v1/devices/tag/event', {
+    type: 'extension_requested', sessionId: device('tag').session.id, requestId: 'r1',
+  });
+  store.extendSession('tag', { durationSeconds: 60 });
+  assert.equal(device('tag').session.extensionRequest, null);
+});
+
+test('a stale request changes nothing and publishes nothing', () => {
   const { store, client, device } = setupWithStore();
   store.register({ id: 'tag' });
   store.startSession('tag', { durationSeconds: 30 });
@@ -229,34 +273,34 @@ test('a stale restart event changes nothing and publishes nothing', () => {
   const published = client.published.length;
   const topic = 'playpulse/v1/devices/tag/event';
 
-  client.receive(topic, { type: 'restart_requested', sessionId: 'old-session' });
-  client.receive(topic, { type: 'restart_requested', sessionId: null });
-  client.receive(topic, { type: 'restart_requested' });
+  client.receive(topic, { type: 'extension_requested', sessionId: 'old-session' });
+  client.receive(topic, { type: 'extension_requested', sessionId: null });
+  client.receive(topic, { type: 'extension_requested' });
   client.receive(topic, { type: 'something_else', sessionId: before.id });
 
   assert.deepEqual(device('tag').session, before);
   assert.equal(client.published.length, published);
 });
 
-test('a redelivered restart event only restarts once', () => {
-  const { store, client, device, clock } = setupWithStore();
+test('a redelivered request is not raised again after it was answered', () => {
+  const { store, client, device } = setupWithStore();
   store.register({ id: 'tag' });
   store.startSession('tag', { durationSeconds: 30 });
-  const event = { type: 'restart_requested', sessionId: device('tag').session.id };
+  const event = { type: 'extension_requested', sessionId: device('tag').session.id, requestId: 'r1' };
   client.receive('playpulse/v1/devices/tag/event', event);
-  const { endsAt } = device('tag').session;
-  clock.t += 5000;
+  store.declineExtension('tag');
   client.receive('playpulse/v1/devices/tag/event', event);
-  assert.equal(device('tag').session.restarts, 1);
-  assert.equal(device('tag').session.endsAt, endsAt);
+  assert.equal(device('tag').session.extensionRequest, null);
+  client.receive('playpulse/v1/devices/tag/event', { ...event, requestId: 'r2' });
+  assert.ok(device('tag').session.extensionRequest, 'a new hold still works');
 });
 
-test('a restart event for an idle or unknown wristband is ignored', () => {
+test('a request for an idle or unknown wristband is ignored', () => {
   const { store, client } = setupWithStore();
   store.register({ id: 'tag' });
   const published = client.published.length;
-  client.receive('playpulse/v1/devices/tag/event', { type: 'restart_requested', sessionId: 'x' });
-  client.receive('playpulse/v1/devices/ghost/event', { type: 'restart_requested', sessionId: 'x' });
+  client.receive('playpulse/v1/devices/tag/event', { type: 'extension_requested', sessionId: 'x' });
+  client.receive('playpulse/v1/devices/ghost/event', { type: 'extension_requested', sessionId: 'x' });
   assert.equal(client.published.length, published);
 });
 

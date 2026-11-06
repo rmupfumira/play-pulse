@@ -12,7 +12,8 @@
 //                                      says it shows: { state, remainingMs, sessionId }
 //   'presence' { deviceId, online, firmware?, live }  connection status; `live`
 //                                      is false for a retained, older message
-//   'restartRequested' { deviceId, sessionId }  staff asked the watch to restart
+//   'extensionRequested' { deviceId, sessionId, requestId }  the screen was held,
+//                                      asking staff for more time
 //   'status'                           info() changed
 import { MqttAdapter } from './mqtt.js';
 import { SimulatorAdapter } from './simulator.js';

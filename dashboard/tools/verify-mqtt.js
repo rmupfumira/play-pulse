@@ -149,7 +149,9 @@ try {
       const value = seenSession(WATCH);
       return value?.sessionId === firstId && value;
     });
-    assert.deepEqual(sent, { sessionId: firstId, endsAt: session.endsAt, warningMs: 20_000, durationMs: 60_000 });
+    assert.deepEqual(sent, {
+      sessionId: firstId, endsAt: session.endsAt, warningMs: 20_000, durationMs: 60_000, extensionPending: false,
+    });
     await until('watch received it', async () => watch.session?.sessionId === firstId);
     await until('report agrees', async () => (await device(WATCH)).report?.verdict === 'ok');
     assert.equal((await device(WATCH)).report.state, 'green');
@@ -162,34 +164,36 @@ try {
     assert.equal(seenSession(WATCH).sessionId, firstId);
   });
 
-  await step('a stale restart event changes nothing', async () => {
+  await step('a stale request for more time changes nothing', async () => {
     const before = await device(WATCH);
     watch.holdScreen('stale-session');
-    await until('logged', async () => dashboard.output.includes('ignored restart for stale session stale-session'));
+    await until('logged', async () => dashboard.output.includes('ignored request for more time on session stale-session'));
     const after = await device(WATCH);
     assert.deepEqual(after.session, before.session);
   });
 
-  let secondId;
-  await step('a restart from the watch uses the original duration and shows it happened', async () => {
+  await step('holding the watch asks staff and adds no time', async () => {
+    const { endsAt } = (await device(WATCH)).session;
     watch.holdScreen();
-    const session = await until('restarted', async () => {
-      const current = (await device(WATCH)).session;
-      return current.restarts === 1 && current;
-    });
-    secondId = session.id;
-    assert.notEqual(secondId, firstId);
-    assert.equal(session.endsAt - session.startedAt, 60_000);
-    assert.equal(session.durationMs, 60_000);
-    assert.ok(session.lastRestartAt);
-    await until('republished', async () => seenSession(WATCH).sessionId === secondId);
-    await until('watch received it', async () => watch.session?.sessionId === secondId);
+    await until('request shown', async () => (await device(WATCH)).session.extensionRequest);
+    await until('watch told', async () => watch.session?.extensionPending === true);
+    assert.equal((await device(WATCH)).session.endsAt, endsAt);
   });
 
-  await step('replaying the old restart event is ignored', async () => {
-    watch.holdScreen(firstId);
-    await until('logged', async () => dashboard.output.includes(`stale session ${firstId}`));
-    assert.equal((await device(WATCH)).session.restarts, 1);
+  await step('staff can decline a request', async () => {
+    const { endsAt } = (await device(WATCH)).session;
+    await call('POST', `/devices/${WATCH}/extension/decline`);
+    await until('watch told', async () => watch.session?.extensionPending === false);
+    assert.equal((await device(WATCH)).session.endsAt, endsAt);
+  });
+
+  await step('staff can approve a request with an amount of time', async () => {
+    const { endsAt } = (await device(WATCH)).session;
+    watch.holdScreen();
+    await until('request shown', async () => (await device(WATCH)).session.extensionRequest);
+    await call('POST', `/devices/${WATCH}/extension/approve`, { durationSeconds: 60 });
+    await until('watch told', async () => watch.session?.endsAt === endsAt + 60_000);
+    assert.equal(watch.session.extensionPending, false);
   });
 
   await step('a watch whose countdown disagrees is flagged, without changing the session', async () => {

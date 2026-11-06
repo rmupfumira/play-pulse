@@ -11,6 +11,7 @@ const FILTERS = {
   red: (item) => item.state === 'red',
   offline: (item) => !item.online,
   mismatch: (item) => isMismatch(item),
+  request: (item) => hasRequest(item),
 };
 const START_PRESETS = [
   { seconds: 30, text: '30 sec' },
@@ -37,7 +38,7 @@ let moreDeviceId = null;
 let view = 'bands';
 let people = { parents: [], children: [] };
 let peopleRevision = null;
-const knownRestarts = new Map();
+const knownRequests = new Map();
 
 function displayName(device) {
   return device.child?.name || device.label || 'Unassigned';
@@ -108,12 +109,7 @@ function timeOfDay(at) {
   return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function restartText(item) {
-  const restarts = item.session?.restarts;
-  if (!restarts) return '';
-  const times = restarts > 1 ? ` (${restarts} times)` : '';
-  return `Restarted on the watch at ${timeOfDay(item.session.lastRestartAt)}${times}`;
-}
+const hasRequest = (item) => Boolean(item.session?.extensionRequest);
 
 // What the watch says it is showing, and whether that agrees with the server.
 function watchNote(item) {
@@ -186,7 +182,8 @@ function updateCard(card, item) {
   link.title = [item.firmware && `Firmware ${item.firmware}`, item.rssi !== null && `${item.rssi} dBm`]
     .filter(Boolean).join(', ');
 
-  setNote(field(card, 'restart'), { text: restartText(item) });
+  field(card, 'request').hidden = !hasRequest(item);
+  card.toggleAttribute('data-request', hasRequest(item));
   // Only a problem is worth a line on the card.
   setNote(field(card, 'watch'), snap.adapter.canCommandDevices && isMismatch(item) ? watchNote(item) : { text: '' });
 
@@ -201,15 +198,13 @@ function updateNearby(row, item) {
   field(row, 'seen').textContent = `Heard ${agoText(item.lastSeenAt)}`;
 }
 
-// The page must make a restart from the watch visible, because anyone can do it.
-function announceRestarts(devices) {
+// A request has to be noticed from wherever staff are in the page.
+function announceRequests(devices) {
   for (const item of devices) {
-    const at = item.session?.lastRestartAt ?? null;
-    const known = knownRestarts.get(item.id);
-    if (known !== undefined && at !== null && at !== known) {
-      toast(`${displayName(item)} (${item.id}) was restarted on the watch.`);
-    }
-    knownRestarts.set(item.id, at);
+    const at = item.session?.extensionRequest?.requestedAt ?? null;
+    const known = knownRequests.get(item.id);
+    if (at !== null && at !== known) toast(`${displayName(item)} is asking for more time.`);
+    knownRequests.set(item.id, at);
   }
 }
 
@@ -233,14 +228,17 @@ function render() {
   const ending = count('yellow');
   for (const name of Object.keys(FILTERS)) el(`count-${name}`).textContent = count(name);
   el('mismatch-tile').hidden = count('mismatch') === 0;
-  if (filter === 'mismatch' && count('mismatch') === 0) setFilter(null);
-  announceRestarts(devices);
-  document.title = expired + ending > 0 ? `(${expired + ending}) PlayPulse` : 'PlayPulse';
+  el('request-tile').hidden = count('request') === 0;
+  if (['mismatch', 'request'].includes(filter) && count(filter) === 0) setFilter(null);
+  announceRequests(devices);
+  const waiting = expired + ending + count('request');
+  document.title = waiting > 0 ? `(${waiting}) PlayPulse` : 'PlayPulse';
 
   // Whatever needs staff comes first, most overrun at the top.
   const shown = devices
     .filter(filter ? FILTERS[filter] : () => true)
-    .sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state]
+    .sort((a, b) => hasRequest(b) - hasRequest(a)
+      || STATE_ORDER[a.state] - STATE_ORDER[b.state]
       || (a.state === 'idle' ? 0 : a.remainingMs - b.remainingMs));
   syncList(el('devices'), shown, 'band-card', updateCard);
   el('devices-empty').hidden = devices.length > 0;
@@ -647,6 +645,24 @@ function openMore(item) {
   dialog.showModal();
 }
 
+function openApprove(item) {
+  openSessionDialog(item, {
+    title: 'Approve more time',
+    submit: 'Approve',
+    presets: EXTEND_PRESETS,
+    showLabel: false,
+    action: async (data) => {
+      await api('POST', `${devicePath(item.id)}/extension/approve`, { durationSeconds: chosenSeconds(data) });
+      return `More time approved on ${item.id}.`;
+    },
+  });
+}
+
+async function decline(item) {
+  await api('POST', `${devicePath(item.id)}/extension/decline`);
+  return `Request declined on ${item.id}.`;
+}
+
 function openConfirm({ title, body, submit, action }) {
   const dialog = el('confirm-dialog');
   field(dialog, 'title').textContent = title;
@@ -694,6 +710,8 @@ const actions = {
   extend: openExtend,
   end: askEnd,
   more: openMore,
+  approve: openApprove,
+  decline: (item) => decline(item).then(toast, (err) => toast(err.message)),
   'clear-filter': () => { setFilter(null); render(); },
   'sign-out': async () => {
     await api('POST', '/api/logout');

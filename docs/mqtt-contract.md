@@ -44,12 +44,21 @@ live within 10 s. Until then a watch's countdown runs high by the age of the mes
 Active session:
 
 ```json
-{ "sessionId": "abc123", "endsAt": 1793940030000, "warningMs": 10000, "durationMs": 30000 }
+{
+  "sessionId": "abc123",
+  "endsAt": 1793940030000,
+  "warningMs": 10000,
+  "durationMs": 30000,
+  "extensionPending": false
+}
 ```
 
 `durationMs` is the session's length including any extensions. The watch uses it to
 show how much of the session is left. If it is missing, the watch treats the time
 left when it first saw the session as the full length.
+
+`extensionPending` is true while a request for more time from the watch is waiting for
+staff. The watch shows that it has asked.
 
 No session. Publish this rather than clearing the retained message, so a watch can tell
 "no session" from "not heard yet":
@@ -58,12 +67,12 @@ No session. Publish this rather than clearing the retained message, so a watch c
 { "sessionId": null }
 ```
 
-The server republishes this whenever a session starts, is extended, restarts or ends,
+The server republishes this whenever a session starts, is extended or ends, when a request for more time changes,
 when a device is registered or removed, and for every device each time it connects to the
 broker. A retained message lets a rebooted watch recover its session.
 
 Every message replaces whatever the watch held. `sessionId` stays the same when a session
-is extended and changes when it restarts, so always use the latest one.
+is extended, so always use the latest one.
 
 A watch that is not registered yet receives no session message. It should report `idle`
 and keep listening.
@@ -106,23 +115,21 @@ fit, or a `remainingMs` more than 3 s out.
 
 ### `.../event`
 
-Staff held the watch screen for 3 seconds:
+The watch screen was held for 3 seconds, asking for more time:
 
 ```json
-{ "type": "restart_requested", "sessionId": "abc123" }
+{ "type": "extension_requested", "sessionId": "abc123", "requestId": "90500" }
 ```
 
-The server restarts that session with its original duration and republishes `.../session`
-with a new `sessionId`. The original duration is the one chosen at start, so extensions
-are dropped. This works on an expired session too.
+This changes no time by itself. The server records the request, republishes `.../session`
+with `extensionPending: true` and shows it to staff, who approve it with an amount of time
+or decline it. Either way the server republishes `.../session` with `extensionPending:
+false`, and an approval also carries the new `endsAt`. This works on an expired session too.
 
-It ignores the event if `sessionId` is not the current session, which also makes a
-redelivered copy of the event harmless, as QoS 1 allows. The watch should wait for the
-new `.../session` rather than restart its own countdown. An event sent while the server
+`requestId` is different for each hold. The server ignores an event if `sessionId` is not
+the current session, if a request is already waiting, or if it has seen that `requestId`,
+so a copy redelivered by QoS 1 can't raise a request again. An event sent while the server
 is down is lost.
-
-Holding the screen is not secure, because anyone can do it. The dashboard shows that it
-happened.
 
 ## Broker
 

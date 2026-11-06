@@ -65,6 +65,9 @@
       <button class="tile" data-filter="offline" aria-pressed="false">
         <span class="tile-count" id="count-offline">0</span><span class="tile-name">Offline</span>
       </button>
+      <button class="tile" id="request-tile" data-filter="request" aria-pressed="false" hidden>
+        <span class="tile-count" id="count-request">0</span><span class="tile-name">Asking for time</span>
+      </button>
       <button class="tile" id="mismatch-tile" data-filter="mismatch" aria-pressed="false" hidden>
         <span class="tile-count" id="count-mismatch">0</span><span class="tile-name">Mismatch</span>
       </button>
@@ -133,7 +136,13 @@
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
       </button>
       <p class="band-note" data-f="watch" hidden></p>
-      <p class="band-note" data-f="restart" hidden></p>
+      <div class="band-request" data-f="request" hidden>
+        <p>Asking for more time</p>
+        <div class="band-request-actions">
+          <button class="btn" data-action="decline">Decline</button>
+          <button class="btn btn-primary" data-action="approve">Approve</button>
+        </div>
+      </div>
       <div class="band-actions">
         <button class="btn btn-primary" data-action="start">Start session</button>
         <button class="btn" data-action="extend">Extend</button>

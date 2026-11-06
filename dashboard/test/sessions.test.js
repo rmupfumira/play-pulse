@@ -94,6 +94,5 @@ test('a session started before IDs existed gets one on load', () => {
   store.load();
   const [{ session: loaded }] = store.sessions();
   assert.ok(loaded.id);
-  assert.equal(loaded.originalDurationMs, 1);
-  assert.equal(loaded.restarts, 0);
+  assert.equal(loaded.extensionRequest, null);
 });
